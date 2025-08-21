@@ -205,6 +205,34 @@ class RAGService:
             logger.error(f"Failed to generate advice: {e}")
             return "申し訳ございませんが、AIアドバイスの生成中にエラーが発生しました。"
     
+    def generate_advice_for_issue(self, issue: Dict[str, Any]) -> Optional[str]:
+        """Generate advice for a specific issue.
+        
+        Args:
+            issue: Issue dictionary from Redmine API
+            
+        Returns:
+            Generated advice text or None if generation fails
+        """
+        try:
+            # Create issue description for search
+            issue_description = self._create_issue_content(issue)
+            
+            # Search for similar issues
+            similar_issues = self.search_similar_issues(issue_description, n_results=5)
+            
+            # Generate advice
+            advice = self.generate_advice(issue_description, similar_issues)
+            
+            if advice and advice.strip() and advice != "申し訳ございませんが、AIアドバイスの生成中にエラーが発生しました。":
+                return f"🤖 AI自動アドバイス:\n\n{advice}"
+            else:
+                return None
+                
+        except Exception as e:
+            logger.error(f"Failed to generate advice for issue {issue.get('id', 'unknown')}: {e}")
+            return None
+    
     def _create_issue_content(self, issue: Dict[str, Any]) -> str:
         """Create searchable content from issue data.
         

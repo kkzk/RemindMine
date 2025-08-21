@@ -29,8 +29,9 @@ class Config(BaseModel):
     
     # Update settings
     update_interval_minutes: int = int(os.getenv("UPDATE_INTERVAL_MINUTES", "60"))
+    polling_interval_minutes: int = int(os.getenv("POLLING_INTERVAL_MINUTES", "5"))
     
-    # Webhook settings
+    # Legacy webhook settings (deprecated)
     webhook_secret: Optional[str] = os.getenv("WEBHOOK_SECRET")
 
 

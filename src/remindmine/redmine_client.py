@@ -134,3 +134,61 @@ class RedmineClient:
             
         logger.info(f"Fetched {len(all_issues)} issues total")
         return all_issues
+
+    def get_issues_since(self, since_datetime: datetime) -> List[Dict[str, Any]]:
+        """Get issues created since the specified datetime.
+        
+        Args:
+            since_datetime: Datetime to filter issues from
+            
+        Returns:
+            List of new issues
+        """
+        # Format datetime for Redmine API (ISO format)
+        since_str = since_datetime.strftime('%Y-%m-%dT%H:%M:%SZ')
+        
+        url = f"{self.base_url}/issues.json"
+        params = {
+            'created_on': f">={since_str}",
+            'sort': 'created_on:desc',
+            'limit': 100,
+            'include': 'journals'
+        }
+        
+        try:
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            issues = data.get('issues', [])
+            logger.info(f"Found {len(issues)} issues created since {since_str}")
+            return issues
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch issues since {since_str}: {e}")
+            return []
+
+    def get_latest_issue_creation_time(self) -> Optional[datetime]:
+        """Get the creation time of the most recently created issue.
+        
+        Returns:
+            Datetime of the latest issue creation, or None if no issues exist
+        """
+        url = f"{self.base_url}/issues.json"
+        params = {
+            'sort': 'created_on:desc',
+            'limit': 1
+        }
+        
+        try:
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            issues = data.get('issues', [])
+            
+            if issues:
+                created_on_str = issues[0]['created_on']
+                # Parse Redmine datetime format
+                return datetime.fromisoformat(created_on_str.replace('Z', '+00:00'))
+            return None
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch latest issue creation time: {e}")
+            return None

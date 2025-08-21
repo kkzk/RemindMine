@@ -8,7 +8,7 @@ Ollama（ローカルLLM）
 LangChain（RAGパイプライン）
 Python + FastAPI
 を使用して、AI エージェントを作成してください。
-1. RedmineのIssue作成をWebHookで受け取る
+1. Redmineの新規Issue投稿をポーリングして検出
 2. RAGから関連した事例を検索し、アドバイスを Issueへのコメントとして投稿するBot的な動作
 
 と、
@@ -24,11 +24,11 @@ Redmine から定期的にIssueとジャーナルを取得して、RAGを更新�
 
 RedmineとAIを連携させたインテリジェントなIssue解決支援エージェント
 
-新しいIssueが登録されると、過去の類似事例を自動検索してAIが解決策をアドバイスとしてコメント投稿します。
+新しいIssueが登録されると、ポーリングで自動検知し、過去の類似事例を検索してAIが解決策をアドバイスとしてコメント投稿します。
 
 ## ✨ 主な機能
 
-- **🔗 Webhook連携**: RedmineのWebhookで新規Issue作成を自動検知
+- **� ポーリング監視**: Redmineの新規Issue作成を定期的に監視・検知
 - **🔍 RAG検索**: ChromaDBを使った過去Issue類似検索（意味的検索）
 - **🧠 AIアドバイス**: Ollama（ローカルLLM）による解決策提案
 - **⏰ 自動更新**: バックグラウンドでの定期的なナレッジベース更新
@@ -38,8 +38,8 @@ RedmineとAIを連携させたインテリジェントなIssue解決支援エー
 ## 🏗️ システム構成
 
 ```
-┌─────────────┐    Webhook    ┌──────────────────┐
-│   Redmine   │─────────────→│  RemindMine AI   │
+┌─────────────┐    Polling    ┌──────────────────┐
+│   Redmine   │◄─────────────│  RemindMine AI   │
 │             │               │     Agent        │
 └─────────────┘               └──────────────────┘
                                       │
@@ -144,6 +144,7 @@ API_PORT=8000
 
 # 更新間隔（分）
 UPDATE_INTERVAL_MINUTES=60
+POLLING_INTERVAL_MINUTES=5
 ```
 
 ## 🎯 使用方法
@@ -181,16 +182,15 @@ uvicorn src.remindmine.app:app --host 0.0.0.0 --port 8000
 
 サーバーは `http://localhost:8000` で起動します。
 
-### 3. 🔗 Redmine Webhook設定
-Redmine管理画面で以下を設定：
+### 3. � ポーリング設定
+RemindMine AIエージェントは自動的にRedmineをポーリングして新規Issueを検出します：
 
-1. **管理** → **設定** → **リポジトリ** に移動
-2. **Webhook URL** を追加: `http://your-server:8000/webhook/redmine`
-3. **イベント** で「Issue」を選択
-4. 保存
+- **デフォルト設定**: 5分間隔でポーリング
+- **設定変更**: 環境変数 `POLLING_INTERVAL_MINUTES` で調整可能
+- **RAG更新**: 60分間隔でナレッジベース更新（`UPDATE_INTERVAL_MINUTES`で調整）
 
 ### 4. ✅ 動作確認
-新しいIssueを作成すると、数秒後にAIアドバイスがコメントとして投稿されます。
+新しいIssueを作成すると、次回ポーリング時（最大5分後）にAIアドバイスがコメントとして投稿されます。
 
 ## 🛠️ CLI コマンド
 
@@ -227,7 +227,6 @@ update.bat
 |---------|---------------|------|
 | `GET` | `/` | ヘルスチェック |
 | `GET` | `/health` | 詳細ステータス情報 |
-| `POST` | `/webhook/redmine` | Redmine Webhook受信 |
 | `POST` | `/api/update-rag` | 手動RAG更新 |
 | `GET` | `/api/search?query=...&limit=5` | 類似Issue検索 |
 | `GET` | `/api/stats` | データベース統計 |
@@ -255,23 +254,30 @@ sequenceDiagram
     participant O as Ollama
     
     U->>R: 新しいIssue作成
-    R->>A: Webhook送信
-    A->>R: Issue詳細取得
-    A->>C: 類似Issue検索
-    C->>A: 検索結果返却
-    A->>O: アドバイス生成要求
-    O->>A: AIアドバイス返却
-    A->>R: コメント投稿
+    
+    Note over A: ポーリング監視
+    loop 定期ポーリング (5分間隔)
+        A->>R: 新規Issue検索
+        R->>A: 新規Issue一覧返却
+        opt 新規Issueが存在
+            A->>R: Issue詳細取得
+            A->>C: 類似Issue検索
+            C->>A: 検索結果返却
+            A->>O: アドバイス生成要求
+            O->>A: AIアドバイス返却
+            A->>R: コメント投稿
+        end
+    end
     
     Note over A,C: バックグラウンド更新
-    loop 定期更新
+    loop 定期更新 (60分間隔)
         A->>R: 全Issue取得
         A->>C: ベクトルDB更新
     end
 ```
 
 ### 処理の詳細
-1. **Issue作成検知**: RedmineのWebhookでリアルタイム検知
+1. **Issue作成検知**: Redmineを定期ポーリングで新規Issue監視
 2. **類似検索**: ChromaDBで過去Issueの意味的類似検索
 3. **アドバイス生成**: Ollamaが類似事例を基に解決策を提案
 4. **自動投稿**: RedmineAPIでIssueにコメントを自動追加
@@ -283,7 +289,7 @@ sequenceDiagram
 RemindMine/
 ├── 📂 src/remindmine/           # メインパッケージ
 │   ├── 🐍 __init__.py          # パッケージ初期化
-│   ├── 🌐 app.py               # FastAPIアプリ（Webhook処理）
+│   ├── 🌐 app.py               # FastAPIアプリ（ポーリング & API）
 │   ├── ⚙️  config.py            # 設定管理
 │   ├── 🔗 redmine_client.py    # Redmine API クライアント
 │   ├── 🧠 rag_service.py       # ChromaDB + Ollama RAG
@@ -306,7 +312,7 @@ RemindMine/
 
 | ファイル | 役割 |
 |---------|------|
-| `app.py` | FastAPIサーバー、Webhook受信、API提供 |
+| `app.py` | FastAPIサーバー、ポーリング監視、API提供 |
 | `redmine_client.py` | Redmine REST API操作（Issue取得・コメント投稿） |
 | `rag_service.py` | ChromaDB検索 + Ollama AI生成 |
 | `scheduler.py` | バックグラウンド定期更新 |
@@ -365,7 +371,7 @@ python cli.py update
 ### カスタマイズポイント
 - **`rag_service.py`**: プロンプトやRAGロジックの調整
 - **`config.py`**: 新しい設定項目の追加
-- **`app.py`**: Webhook処理やAPI追加
+- **`app.py`**: ポーリング処理やAPI追加
 - **`.env`**: 各種パラメータの調整
 
 ## 🔍 トラブルシューティング
@@ -411,12 +417,14 @@ rm -rf data/chromadb    # Linux/Mac
 python cli.py update
 ```
 
-#### 4. Webhook が受信されない
+#### 4. 新規Issue検出の遅延
+**症状:**
+- 新しいIssueが作成されてもAIアドバイスが投稿されない
+
 **確認ポイント:**
-- サーバーが起動しているか: `http://localhost:8000/health`
-- Redmineからサーバーにアクセスできるか
-- Webhook URLが正しいか: `http://your-server:8000/webhook/redmine`
-- ファイアウォールの設定
+- ポーリング間隔の設定: `POLLING_INTERVAL_MINUTES`（デフォルト5分）
+- Redmine APIアクセス権限とネットワーク接続
+- ログでポーリング動作を確認: `python main.py`
 
 #### 5. メモリ不足
 ```
@@ -470,7 +478,8 @@ curl http://localhost:8000/api/stats
 #### ChromaDB 最適化
 ```python
 # .envファイルで調整可能
-UPDATE_INTERVAL_MINUTES=30    # 更新頻度（短縮で最新性向上）
+UPDATE_INTERVAL_MINUTES=30      # RAG更新頻度（短縮で最新性向上）
+POLLING_INTERVAL_MINUTES=3      # ポーリング頻度（短縮でリアルタイム性向上）
 ```
 
 #### システムリソース
@@ -490,7 +499,7 @@ UPDATE_INTERVAL_MINUTES=30    # 更新頻度（短縮で最新性向上）
 7. **プラグイン**: Redmineプラグインとしての統合
 
 ### 他システム連携
-- **Jira**: Jira Webhook対応
+- **Jira**: Jiraポーリング対応
 - **GitHub Issues**: GitHub Issues連携
 - **Slack**: Slackボット機能
 - **Microsoft Teams**: Teamsアプリ統合
