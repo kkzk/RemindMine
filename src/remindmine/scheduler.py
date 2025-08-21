@@ -177,7 +177,7 @@ class UpdateScheduler:
             new_issues = self.redmine_client.get_issues_since(self._last_check_time)
             
             if new_issues:
-                logger.info(f"Found {len(new_issues)} new issues since {self._last_check_time.isoformat()}")
+                logger.info(f"Found {len(new_issues)} new issues since {self._last_check_time.astimezone().isoformat()}")
                 
                 # Process each new issue
                 for issue in new_issues:
