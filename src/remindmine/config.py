@@ -31,6 +31,9 @@ class Config(BaseModel):
     update_interval_minutes: int = int(os.getenv("UPDATE_INTERVAL_MINUTES", "60"))
     polling_interval_minutes: int = int(os.getenv("POLLING_INTERVAL_MINUTES", "5"))
     
+    # AI comment settings
+    ai_comment_signature: str = os.getenv("AI_COMMENT_SIGNATURE", "AI自動アドバイス")
+    
     # Legacy webhook settings (deprecated)
     webhook_secret: Optional[str] = os.getenv("WEBHOOK_SECRET")
 

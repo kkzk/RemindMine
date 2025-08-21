@@ -3,12 +3,17 @@
 import logging
 import threading
 import time
+import os
+import json
 from typing import TYPE_CHECKING, Optional
 from datetime import datetime, timezone
 
 if TYPE_CHECKING:
     from .redmine_client import RedmineClient
     from .rag_service import RAGService
+
+# Import config after TYPE_CHECKING to avoid circular imports
+from .config import config
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +42,7 @@ class UpdateScheduler:
         self._rag_thread = None
         self._polling_thread = None
         self._last_check_time: Optional[datetime] = None
+        self._state_file = "data/scheduler_state.json"
     
     def start(self):
         """Start the scheduler."""
@@ -48,8 +54,8 @@ class UpdateScheduler:
         logger.info(f"Starting scheduler with {self.interval_minutes} minute RAG intervals and {self.polling_interval_minutes} minute polling intervals")
         self._stop_event.clear()
         
-        # Initialize last check time to current time
-        self._last_check_time = datetime.now(timezone.utc)
+        # Load or initialize last check time
+        self._load_last_check_time()
         
         # Start RAG update thread
         self._rag_thread = threading.Thread(target=self._run_rag_updates, daemon=True)
@@ -80,6 +86,8 @@ class UpdateScheduler:
         if (self._rag_thread is None or not self._rag_thread.is_alive()) and \
            (self._polling_thread is None or not self._polling_thread.is_alive()):
             logger.info("Scheduler stopped successfully")
+            # Save final state
+            self._save_last_check_time()
     
     def _run_rag_updates(self):
         """Main RAG update loop."""
@@ -103,6 +111,42 @@ class UpdateScheduler:
             
             # Check for new issues
             self._check_new_issues()
+
+    def _load_last_check_time(self):
+        """Load last check time from persistent storage."""
+        try:
+            if os.path.exists(self._state_file):
+                with open(self._state_file, 'r') as f:
+                    state = json.load(f)
+                    last_check_str = state.get('last_check_time')
+                    if last_check_str:
+                        self._last_check_time = datetime.fromisoformat(last_check_str)
+                        logger.info(f"Loaded last check time: {self._last_check_time}")
+                        return
+            
+            # Initialize with current time if no saved state
+            self._last_check_time = datetime.now(timezone.utc)
+            logger.info(f"Initialized last check time: {self._last_check_time}")
+            
+        except Exception as e:
+            logger.error(f"Failed to load last check time: {e}")
+            self._last_check_time = datetime.now(timezone.utc)
+
+    def _save_last_check_time(self):
+        """Save last check time to persistent storage."""
+        try:
+            # Ensure data directory exists
+            os.makedirs(os.path.dirname(self._state_file), exist_ok=True)
+            
+            state = {
+                'last_check_time': self._last_check_time.isoformat() if self._last_check_time else None
+            }
+            
+            with open(self._state_file, 'w') as f:
+                json.dump(state, f)
+                
+        except Exception as e:
+            logger.error(f"Failed to save last check time: {e}")
     
     def _update_rag(self):
         """Update RAG database with latest issues."""
@@ -126,13 +170,14 @@ class UpdateScheduler:
             if self._last_check_time is None:
                 # Initialize with current time if not set
                 self._last_check_time = datetime.now(timezone.utc)
+                self._save_last_check_time()
                 return
             
             # Get new issues since last check
             new_issues = self.redmine_client.get_issues_since(self._last_check_time)
             
             if new_issues:
-                logger.info(f"Found {len(new_issues)} new issues")
+                logger.info(f"Found {len(new_issues)} new issues since {self._last_check_time.isoformat()}")
                 
                 # Process each new issue
                 for issue in new_issues:
@@ -145,9 +190,11 @@ class UpdateScheduler:
                     for issue in new_issues
                 )
                 self._last_check_time = latest_time
+                self._save_last_check_time()
             else:
                 # Update last check time to current time
                 self._last_check_time = datetime.now(timezone.utc)
+                self._save_last_check_time()
                 
         except Exception as e:
             logger.error(f"Failed to check for new issues: {e}")
@@ -163,6 +210,11 @@ class UpdateScheduler:
             issue_subject = issue.get('subject', 'No subject')
             
             logger.info(f"Processing new issue #{issue_id}: {issue_subject}")
+            
+            # Check if AI advice already exists
+            if self.redmine_client.has_ai_comment(issue_id, config.ai_comment_signature):
+                logger.info(f"Issue #{issue_id} already has AI advice, skipping")
+                return
             
             # Generate AI advice for the new issue
             advice = self.rag_service.generate_advice_for_issue(issue)

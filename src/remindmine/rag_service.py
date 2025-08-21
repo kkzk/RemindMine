@@ -97,8 +97,17 @@ class RAGService:
         """
         logger.info(f"Indexing {len(issues)} issues...")
         
-        # Clear existing collection
-        self.collection.delete()
+        # Clear existing collection by deleting and recreating it
+        try:
+            self.chroma_client.delete_collection("redmine_issues")
+        except Exception as e:
+            logger.debug(f"Collection deletion failed (may not exist): {e}")
+        
+        # Recreate collection
+        self.collection = self.chroma_client.get_or_create_collection(
+            name="redmine_issues",
+            metadata={"hnsw:space": "cosine"}
+        )
         
         documents = []
         metadatas = []
@@ -225,7 +234,7 @@ class RAGService:
             advice = self.generate_advice(issue_description, similar_issues)
             
             if advice and advice.strip() and advice != "申し訳ございませんが、AIアドバイスの生成中にエラーが発生しました。":
-                return f"🤖 AI自動アドバイス:\n\n{advice}"
+                return f"AI自動アドバイス:\n\n{advice}"
             else:
                 return None
                 
