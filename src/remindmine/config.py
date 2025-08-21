@@ -33,6 +33,7 @@ class Config(BaseModel):
     
     # AI comment settings
     ai_comment_signature: str = os.getenv("AI_COMMENT_SIGNATURE", "AI自動アドバイス")
+    auto_advice_enabled: bool = os.getenv("AUTO_ADVICE_ENABLED", "true").lower() == "true"
     
     # Legacy webhook settings (deprecated)
     webhook_secret: Optional[str] = os.getenv("WEBHOOK_SECRET")

@@ -5,12 +5,14 @@ import os
 import sys
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from .config import config
 from .redmine_client import RedmineClient
 from .rag_service import RAGService
 from .scheduler import UpdateScheduler
+from .web_routes import web_router
 
 # Configure logging
 logging.basicConfig(
@@ -25,6 +27,12 @@ app = FastAPI(
     description="AI Agent for Redmine issue analysis and advice with polling-based new issue detection",
     version="1.0.0"
 )
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="src/remindmine/static"), name="static")
+
+# Include web routes
+app.include_router(web_router)
 
 # Global services
 redmine_client = None

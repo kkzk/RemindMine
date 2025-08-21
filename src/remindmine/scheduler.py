@@ -211,6 +211,12 @@ class UpdateScheduler:
             
             logger.info(f"Processing new issue #{issue_id}: {issue_subject}")
             
+            # Check if auto-advice is enabled
+            from .web_config import web_config
+            if not web_config.auto_advice_enabled:
+                logger.info(f"Auto-advice is disabled, skipping issue #{issue_id}")
+                return
+            
             # Check if AI advice already exists
             if self.redmine_client.has_ai_comment(issue_id, config.ai_comment_signature):
                 logger.info(f"Issue #{issue_id} already has AI advice, skipping")

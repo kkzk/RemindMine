@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RemindMine AI Agent - ダッシュボード</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1><i class="fas fa-robot"></i> RemindMine AI Agent</h1>
+            <nav class="nav">
+                <button class="nav-btn active" data-tab="dashboard">
+                    <i class="fas fa-tachometer-alt"></i> ダッシュボード
+                </button>
+                <button class="nav-btn" data-tab="create-issue">
+                    <i class="fas fa-plus"></i> Issue作成
+                </button>
+                <button class="nav-btn" data-tab="settings">
+                    <i class="fas fa-cog"></i> 設定
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <!-- ダッシュボードタブ -->
+            <div id="dashboard" class="tab-content active">
+                <div class="section">
+                    <div class="section-header">
+                        <h2><i class="fas fa-exclamation-triangle"></i> 未完了Issues</h2>
+                        <button id="refresh-issues" class="btn btn-secondary">
+                            <i class="fas fa-sync-alt"></i> 更新
+                        </button>
+                    </div>
+                    
+                    <div class="filters">
+                        <select id="project-filter" class="filter-select">
+                            <option value="">全プロジェクト</option>
+                        </select>
+                        <select id="status-filter" class="filter-select">
+                            <option value="">全ステータス</option>
+                        </select>
+                        <select id="priority-filter" class="filter-select">
+                            <option value="">全優先度</option>
+                        </select>
+                    </div>
+
+                    <div id="loading" class="loading" style="display: none;">
+                        <i class="fas fa-spinner fa-spin"></i> 読み込み中...
+                    </div>
+
+                    <div id="issues-container" class="issues-container">
+                        <!-- Issues will be loaded here -->
+                    </div>
+
+                    <div class="pagination">
+                        <button id="prev-page" class="btn btn-secondary" disabled>
+                            <i class="fas fa-chevron-left"></i> 前へ
+                        </button>
+                        <span id="page-info" class="page-info">1 / 1</span>
+                        <button id="next-page" class="btn btn-secondary" disabled>
+                            次へ <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Issue作成タブ -->
+            <div id="create-issue" class="tab-content">
+                <div class="section">
+                    <h2><i class="fas fa-plus"></i> 新しいIssue作成</h2>
+                    
+                    <form id="create-issue-form" class="issue-form">
+                        <div class="form-group">
+                            <label for="issue-project">プロジェクト *</label>
+                            <select id="issue-project" name="project_id" required>
+                                <!-- Options will be loaded dynamically -->
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="issue-tracker">トラッカー *</label>
+                            <select id="issue-tracker" name="tracker_id" required>
+                                <!-- Options will be loaded dynamically -->
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="issue-subject">件名 *</label>
+                            <input type="text" id="issue-subject" name="subject" required 
+                                   placeholder="Issueの件名を入力してください">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="issue-description">説明</label>
+                            <textarea id="issue-description" name="description" rows="6"
+                                      placeholder="Issueの詳細説明を入力してください"></textarea>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="issue-priority">優先度</label>
+                                <select id="issue-priority" name="priority_id">
+                                    <!-- Options will be loaded dynamically -->
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="issue-assignee">担当者</label>
+                                <select id="issue-assignee" name="assigned_to_id">
+                                    <option value="">未割り当て</option>
+                                    <!-- Options will be loaded dynamically -->
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-actions">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-save"></i> Issue作成
+                            </button>
+                            <button type="reset" class="btn btn-secondary">
+                                <i class="fas fa-times"></i> クリア
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- 設定タブ -->
+            <div id="settings" class="tab-content">
+                <div class="section">
+                    <h2><i class="fas fa-cog"></i> システム設定</h2>
+                    
+                    <div class="settings-group">
+                        <h3><i class="fas fa-robot"></i> AI自動アドバイス</h3>
+                        <div class="setting-item">
+                            <label class="toggle-label">
+                                <input type="checkbox" id="auto-advice-toggle">
+                                <span class="toggle-slider"></span>
+                                自動アドバイス機能を有効にする
+                            </label>
+                            <p class="setting-description">
+                                新しいIssueが作成された際に、AIが自動的にアドバイスを生成してコメントを投稿します。
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="settings-group">
+                        <h3><i class="fas fa-display"></i> 表示設定</h3>
+                        <div class="setting-item">
+                            <label for="issues-per-page-setting">1ページあたりのIssue数</label>
+                            <input type="number" id="issues-per-page-setting" 
+                                   value="20" min="5" max="100">
+                        </div>
+                    </div>
+
+                    <div class="settings-group">
+                        <h3><i class="fas fa-server"></i> システム情報</h3>
+                        <div class="system-info">
+                            <div class="info-item">
+                                <span class="info-label">Redmine URL:</span>
+                                <span class="info-value" id="redmine-url">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">Ollama URL:</span>
+                                <span class="info-value" id="ollama-url">Loading...</span>
+                            </div>
+                            <div class="info-item">
+                                <span class="info-label">ChromaDB Path:</span>
+                                <span class="info-value" id="chromadb-path">Loading...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button id="save-settings" class="btn btn-primary">
+                            <i class="fas fa-save"></i> 設定保存
+                        </button>
+                        <button id="test-connection" class="btn btn-secondary">
+                            <i class="fas fa-plug"></i> 接続テスト
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- モーダル -->
+    <div id="advice-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-robot"></i> AIアドバイス</h3>
+                <span class="modal-close">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="advice-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 通知 -->
+    <div id="notification" class="notification">
+        <div class="notification-content">
+            <span id="notification-message"></span>
+            <button id="notification-close" class="notification-close">&times;</button>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

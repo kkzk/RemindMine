@@ -218,3 +218,138 @@ class RedmineClient:
         except Exception as e:
             logger.error(f"Failed to check AI comment for issue {issue_id}: {e}")
             return False
+
+    def get_projects(self) -> List[Dict[str, Any]]:
+        """Get all projects from Redmine.
+        
+        Returns:
+            List of project dictionaries
+        """
+        url = f"{self.base_url}/projects.json"
+        params = {'limit': 100}
+        
+        try:
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('projects', [])
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch projects: {e}")
+            return []
+
+    def get_trackers(self) -> List[Dict[str, Any]]:
+        """Get all trackers from Redmine.
+        
+        Returns:
+            List of tracker dictionaries
+        """
+        url = f"{self.base_url}/trackers.json"
+        
+        try:
+            response = self.session.get(url)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('trackers', [])
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch trackers: {e}")
+            return []
+
+    def get_priorities(self) -> List[Dict[str, Any]]:
+        """Get all issue priorities from Redmine.
+        
+        Returns:
+            List of priority dictionaries
+        """
+        url = f"{self.base_url}/enumerations/issue_priorities.json"
+        
+        try:
+            response = self.session.get(url)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('issue_priorities', [])
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch priorities: {e}")
+            return []
+
+    def get_users(self) -> List[Dict[str, Any]]:
+        """Get all users from Redmine.
+        
+        Returns:
+            List of user dictionaries
+        """
+        url = f"{self.base_url}/users.json"
+        params = {'limit': 100}
+        
+        try:
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('users', [])
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch users: {e}")
+            return []
+
+    def get_statuses(self) -> List[Dict[str, Any]]:
+        """Get all issue statuses from Redmine.
+        
+        Returns:
+            List of status dictionaries
+        """
+        url = f"{self.base_url}/issue_statuses.json"
+        
+        try:
+            response = self.session.get(url)
+            response.raise_for_status()
+            data = response.json()
+            return data.get('issue_statuses', [])
+        except requests.RequestException as e:
+            logger.error(f"Failed to fetch issue statuses: {e}")
+            return []
+
+    def create_issue(self, 
+                    project_id: int,
+                    tracker_id: int,
+                    subject: str,
+                    description: Optional[str] = None,
+                    priority_id: Optional[int] = None,
+                    assigned_to_id: Optional[int] = None) -> int:
+        """Create a new issue in Redmine.
+        
+        Args:
+            project_id: Project ID
+            tracker_id: Tracker ID
+            subject: Issue subject
+            description: Issue description
+            priority_id: Priority ID
+            assigned_to_id: Assigned user ID
+            
+        Returns:
+            Created issue ID
+        """
+        url = f"{self.base_url}/issues.json"
+        
+        issue_data = {
+            "project_id": project_id,
+            "tracker_id": tracker_id,
+            "subject": subject
+        }
+        
+        if description:
+            issue_data["description"] = description
+        if priority_id:
+            issue_data["priority_id"] = priority_id
+        if assigned_to_id:
+            issue_data["assigned_to_id"] = assigned_to_id
+        
+        payload = {"issue": issue_data}
+        
+        try:
+            response = self.session.post(url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            issue_id = data["issue"]["id"]
+            logger.info(f"Created issue #{issue_id}: {subject}")
+            return issue_id
+        except requests.RequestException as e:
+            logger.error(f"Failed to create issue: {e}")
+            raise
