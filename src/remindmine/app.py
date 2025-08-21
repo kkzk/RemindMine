@@ -1,6 +1,8 @@
 """FastAPI web application for Redmine issue analysis and advice API."""
 
 import logging
+import os
+import sys
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 import uvicorn
@@ -179,11 +181,18 @@ async def get_stats():
 
 def main():
     """Run the FastAPI application."""
+    # デバッグモード判定
+    debug_mode = (
+        "--debug" in sys.argv or 
+        os.getenv("DEBUG") == "1" or
+        any("debugpy" in module for module in sys.modules.keys())
+    )
+    
     uvicorn.run(
         "remindmine.app:app",
         host=config.api_host,
         port=config.api_port,
-        reload=False
+        reload=debug_mode
     )
 
 

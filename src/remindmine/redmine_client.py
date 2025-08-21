@@ -192,3 +192,29 @@ class RedmineClient:
         except requests.RequestException as e:
             logger.error(f"Failed to fetch latest issue creation time: {e}")
             return None
+
+    def has_ai_comment(self, issue_id: int, ai_signature: str = "AI自動アドバイス") -> bool:
+        """Check if an issue already has an AI comment.
+        
+        Args:
+            issue_id: Issue ID
+            ai_signature: Signature to identify AI comments
+            
+        Returns:
+            True if AI comment exists, False otherwise
+        """
+        try:
+            issue = self.get_issue(issue_id)
+            if not issue or 'journals' not in issue:
+                return False
+            
+            # Check all journals (comments) for AI signature
+            for journal in issue['journals']:
+                notes = journal.get('notes', '')
+                if ai_signature in notes:
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.error(f"Failed to check AI comment for issue {issue_id}: {e}")
+            return False
