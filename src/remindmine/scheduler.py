@@ -226,12 +226,10 @@ class UpdateScheduler:
             advice = self.rag_service.generate_advice_for_issue(issue)
             
             if advice:
-                # Post the advice as a comment
-                success = self.redmine_client.add_comment(issue_id, advice)
-                if success:
-                    logger.info(f"Successfully posted AI advice to issue #{issue_id}")
-                else:
-                    logger.error(f"Failed to post AI advice to issue #{issue_id}")
+                # Add to pending advice instead of posting immediately
+                from .pending_advice import pending_advice_manager
+                advice_id = pending_advice_manager.add_pending_advice(issue, advice)
+                logger.info(f"Added AI advice for issue #{issue_id} to pending list with ID {advice_id}")
             else:
                 logger.warning(f"No AI advice generated for issue #{issue_id}")
                 
