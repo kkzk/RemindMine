@@ -315,8 +315,8 @@ class RemindMineApp {
                             <i class="fas fa-robot"></i>
                             AIアドバイス
                         </div>
-                        <div class="ai-advice-content">
-                            ${this.escapeHtml(this.truncateText(issue.ai_advice, 200))}
+                        <div class="ai-advice-content scrollable" id="ai-advice-${issue.id}">
+                            ${this.escapeHtml(issue.ai_advice || '')}
                         </div>
                     </div>
                 ` : ''}
@@ -416,8 +416,8 @@ class RemindMineApp {
                             <i class="fas fa-robot"></i>
                             AIアドバイス (投稿済み)
                         </div>
-                        <div class="ai-advice-content">
-                            ${this.escapeHtml(this.truncateText(issue.ai_advice, 200))}
+                        <div class="ai-advice-content scrollable" id="ai-advice-${issue.id}">
+                            ${this.escapeHtml(issue.ai_advice || '')}
                         </div>
                     </div>
                 ` : ''}
@@ -431,12 +431,8 @@ class RemindMineApp {
                         ${pendingAdviceList.map(advice => `
                             <div class="pending-advice-item-inline" data-advice-id="${this.escapeHtml(advice.id)}">
                                 <div class="advice-content-inline">
-                                    <div class="advice-text" id="advice-${advice.id}">
-                                        ${this.escapeHtml(this.truncateText(advice.advice_content, 300))}
-                                        ${advice.advice_content.length > 300 ? 
-                                            `<button class="expand-toggle" onclick="app.toggleExpand('advice-${advice.id}', '${this.escapeForJs(advice.advice_content)}')">続きを読む</button>` : 
-                                            ''
-                                        }
+                                    <div class="advice-text scrollable" id="advice-${advice.id}">
+                                        ${this.escapeHtml(advice.advice_content || '')}
                                     </div>
                                 </div>
                                 <div class="advice-actions-inline">
