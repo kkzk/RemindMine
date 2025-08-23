@@ -6,6 +6,9 @@
     <title>RemindMine AI Agent - ダッシュボード</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- Markdown rendering libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js" defer></script>
 </head>
 <body>
     <header class="header">
@@ -14,9 +17,6 @@
             <nav class="nav">
                 <button class="nav-btn active" data-tab="dashboard">
                     <i class="fas fa-tachometer-alt"></i> ダッシュボード
-                </button>
-                <button class="nav-btn" data-tab="create-issue">
-                    <i class="fas fa-plus"></i> Issue作成
                 </button>
                 <button class="nav-btn" data-tab="settings">
                     <i class="fas fa-cog"></i> 設定
@@ -69,66 +69,7 @@
                 </div>
             </div>
 
-            <!-- Issue作成タブ -->
-            <div id="create-issue" class="tab-content">
-                <div class="section">
-                    <h2><i class="fas fa-plus"></i> 新しいIssue作成</h2>
-                    
-                    <form id="create-issue-form" class="issue-form">
-                        <div class="form-group">
-                            <label for="issue-project">プロジェクト *</label>
-                            <select id="issue-project" name="project_id" required>
-                                <!-- Options will be loaded dynamically -->
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="issue-tracker">トラッカー *</label>
-                            <select id="issue-tracker" name="tracker_id" required>
-                                <!-- Options will be loaded dynamically -->
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="issue-subject">件名 *</label>
-                            <input type="text" id="issue-subject" name="subject" required 
-                                   placeholder="Issueの件名を入力してください">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="issue-description">説明</label>
-                            <textarea id="issue-description" name="description" rows="6"
-                                      placeholder="Issueの詳細説明を入力してください"></textarea>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="issue-priority">優先度</label>
-                                <select id="issue-priority" name="priority_id">
-                                    <!-- Options will be loaded dynamically -->
-                                </select>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="issue-assignee">担当者</label>
-                                <select id="issue-assignee" name="assigned_to_id">
-                                    <option value="">未割り当て</option>
-                                    <!-- Options will be loaded dynamically -->
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">
-                                <i class="fas fa-save"></i> Issue作成
-                            </button>
-                            <button type="reset" class="btn btn-secondary">
-                                <i class="fas fa-times"></i> クリア
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
+            <!-- Issue作成機能は廃止されました -->
 
             <!-- 設定タブ -->
             <div id="settings" class="tab-content">
@@ -146,6 +87,86 @@
                             <p class="setting-description">
                                 新しいIssueが作成された際に、AIが自動的にアドバイスを生成してコメントを投稿します。
                             </p>
+                        </div>
+                    </div>
+
+                    <div class="settings-group">
+                        <h3><i class="fas fa-brain"></i> AIプロバイダ設定</h3>
+                        <div class="setting-item">
+                            <label for="ai-provider-select">AIプロバイダ</label>
+                            <select id="ai-provider-select" class="form-select">
+                                <option value="ollama">Ollama (ローカル)</option>
+                                <option value="openai">OpenAI</option>
+                            </select>
+                            <p class="setting-description">
+                                使用するAIプロバイダを選択します。
+                            </p>
+                        </div>
+
+                        <!-- Ollama設定 -->
+                        <div id="ollama-settings" class="provider-settings">
+                            <h4><i class="fas fa-microchip"></i> Ollama設定</h4>
+                            <div class="setting-item">
+                                <label for="ollama-model-select">LLMモデル</label>
+                                <select id="ollama-model-select" class="form-select">
+                                    <option value="llama3.2:1b">llama3.2:1b (軽量)</option>
+                                    <option value="llama3.2:3b">llama3.2:3b (バランス)</option>
+                                    <option value="llama3.2">llama3.2 (標準)</option>
+                                    <option value="llama3.1">llama3.1</option>
+                                    <option value="codellama">codellama</option>
+                                    <option value="mistral">mistral</option>
+                                    <option value="qwen2.5">qwen2.5</option>
+                                    <option value="phi3">phi3</option>
+                                </select>
+                            </div>
+                            <div class="setting-item">
+                                <label for="ollama-embedding-model-select">Embeddingモデル</label>
+                                <select id="ollama-embedding-model-select" class="form-select">
+                                    <option value="llama3.2">llama3.2</option>
+                                    <option value="mxbai-embed-large">mxbai-embed-large</option>
+                                    <option value="nomic-embed-text">nomic-embed-text</option>
+                                    <option value="all-minilm">all-minilm</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- OpenAI設定 -->
+                        <div id="openai-settings" class="provider-settings" style="display: none;">
+                            <h4><i class="fas fa-cloud"></i> OpenAI設定</h4>
+                            <div class="setting-item">
+                                <div id="openai-key-status" class="api-key-status">
+                                    <i class="fas fa-exclamation-triangle"></i>
+                                    APIキーが設定されていません。環境変数OPENAI_API_KEYを設定してください。
+                                </div>
+                            </div>
+                            <div class="setting-item">
+                                <label for="openai-model-select">LLMモデル</label>
+                                <select id="openai-model-select" class="form-select">
+                                    <option value="gpt-4o">gpt-4o</option>
+                                    <option value="gpt-4o-mini">gpt-4o-mini</option>
+                                    <option value="gpt-4-turbo">gpt-4-turbo</option>
+                                    <option value="gpt-3.5-turbo">gpt-3.5-turbo</option>
+                                </select>
+                            </div>
+                            <div class="setting-item">
+                                <label for="openai-embedding-model-select">Embeddingモデル</label>
+                                <select id="openai-embedding-model-select" class="form-select">
+                                    <option value="text-embedding-3-small">text-embedding-3-small</option>
+                                    <option value="text-embedding-3-large">text-embedding-3-large</option>
+                                    <option value="text-embedding-ada-002">text-embedding-ada-002</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="setting-item">
+                            <div class="provider-actions">
+                                <button id="test-ai-provider" class="btn btn-secondary">
+                                    <i class="fas fa-vial"></i> AIプロバイダテスト
+                                </button>
+                                <button id="save-ai-provider" class="btn btn-primary">
+                                    <i class="fas fa-save"></i> プロバイダ設定保存
+                                </button>
+                            </div>
                         </div>
                     </div>
 

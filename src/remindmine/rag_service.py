@@ -1,4 +1,18 @@
-"""RAG service using ChromaDB for issue similarity search."""
+"""Redmine 課題の類似検索およびアドバイス生成を行う RAG (Retrieval Augmented Generation) サービス。
+
+主な役割:
+1. Redmine 課題データを ChromaDB にベクトル化格納 (Issue -> 複数チャンク)
+2. 新規/対象課題の説明文から類似課題チャンクを検索
+3. 類似課題の文脈を元に LLM へプロンプトを組み立てアドバイスを生成
+
+設計メモ:
+- AI Provider: プロバイダパターンで Ollama/OpenAI を切り替え可能
+- Vector Store: ChromaDB (PersistentClient) を利用し cosine 類似度 (hnsw:space=cosine)
+- 分割: LangChain RecursiveCharacterTextSplitter で長文をチャンク (1000 文字 / 200 文字オーバーラップ)
+- 冪等性: index_issues 呼び出し時はコレクションを一度削除⇒再生成で全件再構築
+- 取得戦略: 除外 issue を考慮するために必要件数 * 3 を一旦取得してフィルタリング
+"""
+
 
 import logging
 from typing import List, Dict, Any, Optional
@@ -6,104 +20,124 @@ import chromadb
 from chromadb.config import Settings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
-import requests
-import json
+import os
+from .config import config
+from .ai_providers import create_ai_provider, AIProvider
 
 logger = logging.getLogger(__name__)
 
 
+# 後方互換性のため OllamaEmbeddings クラスを残す（deprecated）
 class OllamaEmbeddings:
-    """Simple Ollama embeddings wrapper."""
+    """Ollama Embeddings 取得用の極めてシンプルなラッパークラス。
+    
+    注意: このクラスは非推奨です。新しい ai_providers モジュールを使用してください。
+    """
     
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.2"):
-        self.base_url = base_url
-        self.model = model
+        logger.warning("OllamaEmbeddings is deprecated. Use ai_providers module instead.")
+        from .ai_providers import OllamaProvider
+        self._provider = OllamaProvider(base_url, model, model)
     
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """Embed multiple documents."""
-        embeddings = []
-        for text in texts:
-            embedding = self._get_embedding(text)
-            if embedding:
-                embeddings.append(embedding)
-            else:
-                # Fallback to zeros if embedding fails
-                embeddings.append([0.0] * 384)  # Default dimension
-        return embeddings
+        """複数テキストを埋め込みベクトルへ変換。"""
+        return self._provider.embed_documents(texts)
     
     def embed_query(self, text: str) -> List[float]:
-        """Embed a single query."""
-        embedding = self._get_embedding(text)
-        return embedding if embedding else [0.0] * 384
+        """検索クエリ 1 件を埋め込みベクトルへ変換。"""
+        return self._provider.embed_query(text)
     
     def _get_embedding(self, text: str) -> Optional[List[float]]:
-        """Get embedding from Ollama."""
-        try:
-            url = f"{self.base_url}/api/embeddings"
-            data = {
-                "model": self.model,
-                "prompt": text
-            }
-            response = requests.post(url, json=data, timeout=30)
-            response.raise_for_status()
-            result = response.json()
-            return result.get("embedding")
-        except Exception as e:
-            logger.error(f"Failed to get embedding: {e}")
-            return None
+        """内部利用のため、プロバイダ経由で取得。"""
+        embedding = self._provider.embed_query(text)
+        return embedding if any(embedding) else None
 
 
 class RAGService:
-    """RAG service for issue search and advice generation."""
+    """Redmine 課題を対象にした検索 (Retrieval) + 生成 (Generation) サービス本体。"""
     
-    def __init__(self, chromadb_path: str, ollama_base_url: str, ollama_model: str):
-        """Initialize RAG service.
-        
+    def __init__(self, chromadb_path: str, provider_type: Optional[str] = None, 
+                 ollama_base_url: Optional[str] = None, ollama_model: Optional[str] = None):
+        """初期化。
+
         Args:
-            chromadb_path: Path to ChromaDB storage
-            ollama_base_url: Ollama base URL
-            ollama_model: Ollama model name
+            chromadb_path: ChromaDB 永続化ディレクトリパス
+            provider_type: AIプロバイダタイプ ("ollama" or "openai")
+            ollama_base_url: Ollama のベース URL (後方互換性のため)
+            ollama_model: 利用する Ollama モデル名 (後方互換性のため)
         """
         self.chromadb_path = chromadb_path
-        self.ollama_base_url = ollama_base_url
-        self.ollama_model = ollama_model
         
-        # Initialize ChromaDB
+        # AI プロバイダを初期化
+        if provider_type is None:
+            provider_type = config.ai_provider
+        
+        try:
+            self.ai_provider = create_ai_provider(provider_type, config)
+            logger.info(f"Initialized AI provider: {provider_type}")
+        except Exception as e:
+            logger.error(f"Failed to initialize AI provider {provider_type}: {e}")
+            # フォールバックとして Ollama プロバイダを試す
+            try:
+                self.ai_provider = create_ai_provider("ollama", config)
+                logger.warning("Falling back to Ollama provider")
+            except Exception as fallback_e:
+                logger.error(f"Fallback to Ollama also failed: {fallback_e}")
+                raise RuntimeError(f"Failed to initialize any AI provider: {e}")
+        
+        # 後方互換性のため、古いパラメータも保存
+        self.ollama_base_url = ollama_base_url or config.ollama_base_url
+        self.ollama_model = ollama_model or config.ollama_model
+        
+        # ChromaDB クライアント初期化 (永続モード)
         self.chroma_client = chromadb.PersistentClient(
             path=chromadb_path,
             settings=Settings(anonymized_telemetry=False)
         )
         
-        # Initialize embeddings
-        self.embeddings = OllamaEmbeddings(ollama_base_url, ollama_model)
-        
-        # Get or create collection
+        # コレクション取得 (無ければ作成)。距離空間は cosine
         self.collection = self.chroma_client.get_or_create_collection(
             name="redmine_issues",
             metadata={"hnsw:space": "cosine"}
         )
         
-        # Text splitter for long documents
+        # 長文分割: 再利用コストを避けるためインスタンス保持
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200
         )
+        
+        # プロンプトテンプレート格納ディレクトリ
+        self.prompts_dir = os.path.join(os.path.dirname(__file__), 'prompts')
+
+    def _load_prompt_template(self, filename: str) -> Optional[str]:
+        """プロンプトテンプレート (プレーンテキスト) を読み込み。存在しない/失敗時は None。"""
+        path = os.path.join(self.prompts_dir, filename)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Failed to load prompt template {filename}: {e}")
+            return None
     
     def index_issues(self, issues: List[Dict[str, Any]]) -> None:
-        """Index issues into ChromaDB.
-        
+        """課題一覧を ChromaDB に再構築インデックス。
+
+        全再構築 (破壊的) ポリシー: 既存コレクションを削除→再作成→全件投入。
+        差分更新が必要になった場合はここを変更する。
+
         Args:
-            issues: List of issue dictionaries from Redmine
+            issues: Redmine API から取得した課題辞書のリスト
         """
         logger.info(f"Indexing {len(issues)} issues...")
         
-        # Clear existing collection by deleting and recreating it
+        # 既存コレクションを削除 (存在しない場合は例外を握り潰す)
         try:
             self.chroma_client.delete_collection("redmine_issues")
         except Exception as e:
             logger.debug(f"Collection deletion failed (may not exist): {e}")
         
-        # Recreate collection
+        # コレクション再生成
         self.collection = self.chroma_client.get_or_create_collection(
             name="redmine_issues",
             metadata={"hnsw:space": "cosine"}
@@ -114,10 +148,10 @@ class RAGService:
         ids = []
         
         for issue in issues:
-            # Create document content
+            # 課題データから全文 (検索対象テキスト) を組み立て
             content = self._create_issue_content(issue)
             
-            # Split content if too long
+            # 長文はチャンク分割
             chunks = self.text_splitter.split_text(content)
             
             for i, chunk in enumerate(chunks):
@@ -134,7 +168,7 @@ class RAGService:
                 ids.append(doc_id)
         
         if documents:
-            # Add to collection (ChromaDB will generate embeddings automatically)
+            # コレクション追加（エンベディングは後でクエリ時に行う）
             self.collection.add(
                 documents=documents,
                 metadatas=metadatas,
@@ -143,94 +177,85 @@ class RAGService:
             
         logger.info(f"Indexed {len(documents)} document chunks")
     
-    def search_similar_issues(self, query: str, n_results: int = 5) -> List[Dict[str, Any]]:
-        """Search for similar issues.
-        
+    def search_similar_issues(self, query: str, n_results: int = 5, exclude_issue_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """類似課題チャンクを検索。
+
         Args:
-            query: Search query
-            n_results: Number of results to return
-            
+            query: 検索クエリ (通常は課題説明全文)
+            n_results: フィルタ後に返したい件数
+            exclude_issue_id: 除外したい既存課題 ID (自身を除外する用途)
+
         Returns:
-            List of similar issue chunks with metadata
+            類似課題チャンク (content, metadata, similarity を含む) のリスト
         """
         try:
-            # Search in ChromaDB using text query
-            results = self.collection.query(
-                query_texts=[query],
-                n_results=n_results
-            )
+            # 除外フィルタ後にも所望件数を確保するためオーバーフェッチ
+            fetch_n = n_results * 3 if exclude_issue_id is not None else n_results
             
-            similar_issues = []
-            if results['documents'] and results['documents'][0]:
-                for i, doc in enumerate(results['documents'][0]):
-                    metadata = results['metadatas'][0][i] if results['metadatas'] else {}
-                    distance = results['distances'][0][i] if results['distances'] else 1.0
-                    
+            # AIプロバイダ経由でクエリエンベディング生成
+            query_embedding = self.ai_provider.embed_query(query)
+            
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=fetch_n
+            )
+
+            similar_issues: List[Dict[str, Any]] = []
+            documents_list = results.get('documents') or []
+            metadatas_list = results.get('metadatas') or []
+            distances_list = results.get('distances') or []
+
+            if documents_list and documents_list[0]:
+                for i, doc in enumerate(documents_list[0]):
+                    metadata = metadatas_list[0][i] if metadatas_list and metadatas_list[0] and i < len(metadatas_list[0]) else {}
+                    # 除外対象 issue のチャンクはスキップ
+                    if exclude_issue_id is not None and metadata.get('issue_id') == exclude_issue_id:
+                        continue
+                    distance = distances_list[0][i] if distances_list and distances_list[0] and i < len(distances_list[0]) else 1.0
                     similar_issues.append({
                         'content': doc,
                         'metadata': metadata,
-                        'similarity': 1 - distance  # Convert distance to similarity
+                        'similarity': 1 - distance  # cosine 距離 -> 類似度へ変換 (暫定)
                     })
-            
-            return similar_issues
-            
+
+            # 希望件数へ丸め
+            return similar_issues[:n_results]
+
         except Exception as e:
             logger.error(f"Failed to search similar issues: {e}")
             return []
     
     def generate_advice(self, issue_description: str, similar_issues: List[Dict[str, Any]]) -> str:
-        """Generate advice based on similar issues.
-        
-        Args:
-            issue_description: New issue description
-            similar_issues: List of similar issues from search
-            
-        Returns:
-            Generated advice text
-        """
-        # Create context from similar issues
+        """類似課題を踏まえてアドバイステキストを生成。"""
+        # 類似課題からコンテキスト文字列生成
         context = self._create_context(similar_issues)
         
-        # Create prompt
+        # プロンプト生成
         prompt = self._create_advice_prompt(issue_description, context)
         
-        # Generate response using Ollama
+        # AIプロバイダでアドバイス生成
         try:
-            url = f"{self.ollama_base_url}/api/generate"
-            data = {
-                "model": self.ollama_model,
-                "prompt": prompt,
-                "stream": False
-            }
+            advice = self.ai_provider.generate_completion(prompt)
             
-            response = requests.post(url, json=data, timeout=60)
-            response.raise_for_status()
-            result = response.json()
-            
-            advice = result.get("response", "申し訳ございませんが、アドバイスの生成に失敗しました。")
-            return advice.strip()
+            if advice and advice.strip():
+                return advice.strip()
+            else:
+                return "申し訳ございませんが、アドバイスの生成に失敗しました。"
             
         except Exception as e:
             logger.error(f"Failed to generate advice: {e}")
             return "申し訳ございませんが、AIアドバイスの生成中にエラーが発生しました。"
     
     def generate_advice_for_issue(self, issue: Dict[str, Any]) -> Optional[str]:
-        """Generate advice for a specific issue.
-        
-        Args:
-            issue: Issue dictionary from Redmine API
-            
-        Returns:
-            Generated advice text or None if generation fails
-        """
+        """特定の課題 (辞書形式) に対して AI アドバイスを生成。失敗時は None。"""
         try:
-            # Create issue description for search
+            # 検索用に課題説明全文を構築
             issue_description = self._create_issue_content(issue)
             
-            # Search for similar issues
-            similar_issues = self.search_similar_issues(issue_description, n_results=5)
+            # 類似課題検索 (自身の issue_id を除外)
+            similar_issues = self.search_similar_issues(issue_description, n_results=5, exclude_issue_id=issue.get('id'))
             
-            # Generate advice
+            # アドバイス生成
             advice = self.generate_advice(issue_description, similar_issues)
             
             if advice and advice.strip() and advice != "申し訳ございませんが、AIアドバイスの生成中にエラーが発生しました。":
@@ -243,14 +268,7 @@ class RAGService:
             return None
     
     def _create_issue_content(self, issue: Dict[str, Any]) -> str:
-        """Create searchable content from issue data.
-        
-        Args:
-            issue: Issue dictionary
-            
-        Returns:
-            Formatted content string
-        """
+        """課題辞書から検索対象となる統合テキストを生成。"""
         content_parts = []
         
         # Subject
@@ -278,14 +296,7 @@ class RAGService:
         return "\n".join(content_parts)
     
     def _create_context(self, similar_issues: List[Dict[str, Any]]) -> str:
-        """Create context string from similar issues.
-        
-        Args:
-            similar_issues: List of similar issues
-            
-        Returns:
-            Context string
-        """
+        """類似課題リストからコンテキスト文字列を生成。件数 0 の場合は既定文。"""
         if not similar_issues:
             return "関連する過去の事例は見つかりませんでした。"
         
@@ -305,29 +316,12 @@ class RAGService:
         return "\n".join(context_parts)
     
     def _create_advice_prompt(self, issue_description: str, context: str) -> str:
-        """Create prompt for advice generation.
-        
-        Args:
-            issue_description: New issue description
-            context: Context from similar issues
-            
-        Returns:
-            Formatted prompt
-        """
-        prompt = f"""あなたはRedmineの課題解決アシスタントです。新しく登録された課題に対して、過去の類似事例を参考にして実用的なアドバイスを提供してください。
-
-新しい課題:
-{issue_description}
-
-{context}
-
-上記の過去事例を参考にして、新しい課題に対する具体的で実用的なアドバイスを日本語で提供してください。アドバイスは以下の観点から述べてください:
-
-1. 問題の分析
-2. 推奨される解決手順
-3. 注意すべき点
-4. 参考になる過去事例からの学び
-
-アドバイス:"""
-
-        return prompt
+        """アドバイス生成用プロンプトをテンプレート (advice.txt) から組み立て。テンプレート無い場合は簡易版。"""
+        template = self._load_prompt_template('advice.txt')
+        if not template:
+            # Fallback to minimal prompt if template missing
+            return f"課題:\n{issue_description}\n\n{context}\n\nアドバイス:"
+        return (template
+                .replace('{{ISSUE_DESCRIPTION}}', issue_description)
+                .replace('{{CONTEXT}}', context)
+                .replace('{{REDMINE_URL}}', config.redmine_url))

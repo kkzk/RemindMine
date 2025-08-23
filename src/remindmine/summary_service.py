@@ -1,7 +1,15 @@
-"""Issue and journal summary service using LLM."""
+"""Issue and journal summary service using LLM.
+
+変更点:
+ - 要約保存時の強制トランケートを廃止し、LLM出力(=フル要約)をそのままキャッシュへ保存。
+ - プロンプト内の目安文字数 (LIMIT) をテンプレート側で固定 (200) 指定する方式へ変更。
+ - 以前使用していた CONTENT_SUMMARY_PROMPT_LIMIT / JOURNAL_SUMMARY_PROMPT_LIMIT 環境変数は廃止。
+ - SUMMARY_ENFORCE_TRUNCATE のみ継続 (true/false 既定: false)。true の場合はテンプレートの想定(=200)を上限とみなし末尾を ... で切り詰め。
+"""
 
 import logging
-from typing import Dict, Any, Optional, List
+import os
+from typing import Dict, Any, Optional
 import requests
 from .summary_cache import SummaryCacheService
 
@@ -9,17 +17,32 @@ logger = logging.getLogger(__name__)
 
 
 class SummaryService:
-    """Service for generating summaries of issues and journals using LLM."""
+    """Service for generating a unified current-state summary of an issue (content + journals)."""
     
     def __init__(self, ollama_base_url: str, ollama_model: str, cache_file_path: Optional[str] = None):
         self.ollama_base_url = ollama_base_url
         self.ollama_model = ollama_model
-        
+        # 設定: 文字数目安はテンプレート固定 (200)。環境変数による変更は廃止。
+        self.PROMPT_LIMIT = 200
+        self.enforce_truncate = os.getenv('SUMMARY_ENFORCE_TRUNCATE', 'false').lower() in ('1', 'true', 'yes')
+
+        # Prompt templates directory (same package /prompts)
+        self.prompts_dir = os.path.join(os.path.dirname(__file__), 'prompts')
         # Initialize cache service
         if cache_file_path:
             self.cache_service = SummaryCacheService(cache_file_path)
         else:
             self.cache_service = None
+
+    def _load_template(self, name: str) -> Optional[str]:
+        """Load prompt template text by filename (without path)."""
+        try:
+            path = os.path.join(self.prompts_dir, name)
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Failed to load prompt template {name}: {e}")
+            return None
     
     def _chat_with_ollama(self, prompt: str) -> Optional[str]:
         """Chat with Ollama LLM.
@@ -48,115 +71,59 @@ class SummaryService:
             logger.error(f"Failed to chat with Ollama: {e}")
             return None
     
-    def summarize_issue_content(self, issue: Dict[str, Any], max_length: int = 150) -> Optional[str]:
-        """
-        Summarize issue title and description.
-        
-        Args:
-            issue: Issue data from Redmine
-            max_length: Maximum length of summary in characters
-            
-        Returns:
-            Summarized content or None if failed
+    def summarize_issue_current_state(self, issue: Dict[str, Any]) -> Optional[str]:
+        """Issue 本文 (件名/説明) とユーザーコメント(ジャーナル) を統合し「現在の状態」を要約する。
+
+        既存の content_summary / journal_summary を統合する新仕様。
+        互換性のため呼び出し元では 'content_summary' フィールドに格納し、
+        'journal_summary' は今後 None を返す。
         """
         try:
-            subject = issue.get("subject", "")
-            description = issue.get("description", "")
-            
-            if not subject and not description:
+            subject = issue.get("subject", "").strip()
+            description = issue.get("description", "").strip()
+            journals = issue.get("journals", []) or []
+            prompt_limit = self.PROMPT_LIMIT
+
+            if not subject and not description and not journals:
                 return None
-            
-            # Prepare content to summarize
-            content_parts = []
+
+            parts = []
             if subject:
-                content_parts.append(f"件名: {subject}")
+                parts.append(f"[件名]\n{subject}")
             if description:
-                content_parts.append(f"説明: {description}")
-            
-            content = "\n".join(content_parts)
-            
-            # Create summary prompt
-            prompt = f"""以下のIssueの内容を{max_length}文字以内で簡潔に要約してください。
-重要なポイントと課題を含めて、分かりやすく要約してください。
+                parts.append(f"[説明]\n{description}")
 
-Issue内容:
-{content}
-
-要約:"""
-            
-            summary = self._chat_with_ollama(prompt)
-            if summary:
-                # Ensure summary doesn't exceed max_length
-                if len(summary) > max_length:
-                    summary = summary[:max_length-3] + "..."
-                return summary.strip()
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Failed to summarize issue content: {e}")
-            return None
-    
-    def summarize_journals(self, issue: Dict[str, Any], max_length: int = 200) -> Optional[str]:
-        """
-        Summarize issue journals/comments.
-        
-        Args:
-            issue: Issue data from Redmine with journals
-            max_length: Maximum length of summary in characters
-            
-        Returns:
-            Summarized journal content or None if no journals or failed
-        """
-        try:
-            journals = issue.get("journals", [])
-            if not journals:
-                return None
-            
-            # Filter out AI advice comments and collect meaningful journal entries
-            meaningful_journals = []
-            for journal in journals:
-                notes = journal.get("notes", "").strip()
+            # 有効ジャーナル（AIアドバイス除外）
+            meaningful = []
+            for j in journals:
+                notes = (j.get("notes") or "").strip()
                 if not notes:
                     continue
-                
-                # Skip AI advice comments
                 if "🤖 AI自動アドバイス" in notes:
                     continue
-                
-                # Add user and timestamp info
-                user = journal.get("user", {}).get("name", "Unknown")
-                created_on = journal.get("created_on", "")
-                
-                journal_entry = f"[{user}] {notes}"
-                meaningful_journals.append(journal_entry)
-            
-            if not meaningful_journals:
+                user = j.get("user", {}).get("name", "Unknown")
+                created_on = j.get("created_on", "")
+                meaningful.append(f"[{user}] {notes}")
+
+            if meaningful:
+                parts.append("[コメント]" + "\n" + "\n".join(meaningful))
+
+            combined = "\n\n".join(parts)
+
+            template = self._load_template('summary.txt')
+            if not template:
                 return None
-            
-            # Combine all journal entries
-            all_journals = "\n\n".join(meaningful_journals)
-            
-            # Create summary prompt
-            prompt = f"""以下のIssueのコメント履歴を{max_length}文字以内で要約してください。
-主要な議論のポイントや進捗状況、重要な決定事項を含めて要約してください。
+            prompt = template.replace('{{ISSUE_AND_JOURNALS}}', combined)
 
-コメント履歴:
-{all_journals}
-
-要約:"""
-            
             summary = self._chat_with_ollama(prompt)
             if summary:
-                # Ensure summary doesn't exceed max_length
-                if len(summary) > max_length:
-                    summary = summary[:max_length-3] + "..."
-                return summary.strip()
-            
+                summary = summary.strip()
+                if self.enforce_truncate and prompt_limit and len(summary) > prompt_limit:
+                    summary = summary[:prompt_limit - 3] + '...'
+                return summary
             return None
-            
         except Exception as e:
-            logger.error(f"Failed to summarize journals: {e}")
+            logger.error(f"Failed to create unified issue summary: {e}")
             return None
     
     def get_issue_summary_data(self, issue: Dict[str, Any]) -> Dict[str, Any]:
@@ -175,14 +142,20 @@ Issue内容:
             if self.cache_service:
                 cached_summary = self.cache_service.get_cached_summary(issue)
                 if cached_summary:
-                    logger.debug(f"Using cached summary for issue {issue.get('id')}")
-                    return cached_summary
+                    # 旧フォーマット (journal_summary が存在し値あり) は再生成対象
+                    if cached_summary.get("journal_summary"):
+                        logger.debug("Legacy separate summaries detected; regenerating unified summary")
+                    else:
+                        logger.debug(f"Using cached summary for issue {issue.get('id')}")
+                        return cached_summary
             
             # Generate new summaries
             logger.debug(f"Generating new summary for issue {issue.get('id')}")
+            unified = self.summarize_issue_current_state(issue)
             summary_data = {
-                "content_summary": self.summarize_issue_content(issue, max_length=150),
-                "journal_summary": self.summarize_journals(issue, max_length=200),
+                # 新仕様: content_summary に統合サマリを格納。journal_summary は互換のため残すが None。
+                "content_summary": unified,
+                "journal_summary": None,
                 "has_journals": bool(issue.get("journals")),
                 "journal_count": len(issue.get("journals", []))
             }

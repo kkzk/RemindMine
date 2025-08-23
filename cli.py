@@ -30,8 +30,7 @@ def run_update():
         redmine_client = RedmineClient(config.redmine_url, config.redmine_api_key)
         rag_service = RAGService(
             config.chromadb_path,
-            config.ollama_base_url,
-            config.ollama_model
+            config.ai_provider
         )
         
         # Fetch and index issues
@@ -56,8 +55,7 @@ def test_search(query: str):
         # Initialize RAG service
         rag_service = RAGService(
             config.chromadb_path,
-            config.ollama_base_url,
-            config.ollama_model
+            config.ai_provider
         )
         
         # Search for similar issues
@@ -88,8 +86,7 @@ def generate_advice(query: str):
         # Initialize RAG service
         rag_service = RAGService(
             config.chromadb_path,
-            config.ollama_base_url,
-            config.ollama_model
+            config.ai_provider
         )
         
         # Search for similar issues

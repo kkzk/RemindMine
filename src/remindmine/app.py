@@ -39,11 +39,10 @@ async def lifespan(app: FastAPI):
     # Initialize Redmine client
     redmine_client = RedmineClient(config.redmine_url, config.redmine_api_key)
     
-    # Initialize RAG service
+    # Initialize RAG service with AI provider support
     rag_service = RAGService(
         config.chromadb_path,
-        config.ollama_base_url,
-        config.ollama_model
+        config.ai_provider
     )
     
     # Initialize and start scheduler

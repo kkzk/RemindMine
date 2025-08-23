@@ -44,14 +44,7 @@ def set_dependencies(rag_service: RAGService, redmine_client: RedmineClient):
     _redmine_client = redmine_client
 
 
-class IssueCreateRequest(BaseModel):
-    """Request model for issue creation."""
-    project_id: int
-    tracker_id: int
-    subject: str
-    description: Optional[str] = None
-    priority_id: Optional[int] = None
-    assigned_to_id: Optional[int] = None
+# IssueCreateRequest は Issue 作成機能廃止に伴い削除
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -62,6 +55,15 @@ class SettingsUpdateRequest(BaseModel):
 class AutoAdviceSettingsRequest(BaseModel):
     """Request model for auto-advice settings."""
     enabled: bool
+
+
+class AIProviderSettingsRequest(BaseModel):
+    """Request model for AI provider settings."""
+    ai_provider: str
+    ollama_model: Optional[str] = None
+    ollama_embedding_model: Optional[str] = None
+    openai_model: Optional[str] = None
+    openai_embedding_model: Optional[str] = None
 
 
 @web_router.get("/", response_class=HTMLResponse)
@@ -142,34 +144,7 @@ async def get_issues(
         raise HTTPException(status_code=500, detail="Failed to fetch issues")
 
 
-@web_router.post("/api/web/issues")
-async def create_issue(
-    issue_data: IssueCreateRequest,
-    redmine_client: RedmineClient = Depends(get_redmine_client)
-):
-    """Create a new issue in Redmine."""
-    try:
-        if not redmine_client:
-            raise HTTPException(status_code=503, detail="Redmine client not initialized")
-        
-        # Create issue in Redmine
-        issue_id = redmine_client.create_issue(
-            project_id=issue_data.project_id,
-            tracker_id=issue_data.tracker_id,
-            subject=issue_data.subject,
-            description=issue_data.description,
-            priority_id=issue_data.priority_id,
-            assigned_to_id=issue_data.assigned_to_id
-        )
-        
-        return {
-            "id": issue_id,
-            "message": "Issue created successfully"
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to create issue: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create issue: {str(e)}")
+# POST /api/web/issues は廃止
 
 
 @web_router.post("/api/web/issues/{issue_id}/advice")
@@ -453,8 +428,9 @@ def _enhance_issue_data(issue: Dict[str, Any], rag_service: Optional[RAGService]
         "updated_on": issue.get("updated_on"),
         "redmine_url": f"{config.redmine_url}/issues/{issue.get('id')}",
         "ai_advice": None,
-        "content_summary": None,
-        "journal_summary": None,
+    # 新仕様: content_summary に本文+コメント統合サマリを格納。journal_summary は後方互換用に残すが常に None。
+    "content_summary": None,
+    "journal_summary": None,
         "has_journals": False,
         "journal_count": 0
     }
@@ -498,6 +474,43 @@ def _enhance_issue_data(issue: Dict[str, Any], rag_service: Optional[RAGService]
     return enhanced
 
 
+@web_router.post("/api/web/issues/{issue_id}/summaries/regenerate")
+async def regenerate_issue_summaries(issue_id: int, rag_service: RAGService = Depends(get_rag_service), redmine_client: RedmineClient = Depends(get_redmine_client)):
+    """Force invalidate and regenerate summaries for a specific issue.
+
+    Frontend からの明示操作用。キャッシュを無効化し最新内容で再計算した結果を返す。
+    """
+    try:
+        if not rag_service or not redmine_client:
+            raise HTTPException(status_code=503, detail="Services not initialized")
+
+        # Issue 詳細取得
+        issue = redmine_client.get_issue(issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="Issue not found")
+
+        from .config import config
+        data_dir = os.path.dirname(config.chromadb_path)
+        cache_file_path = os.path.join(data_dir, "summary_cache.json")
+
+        summary_service = SummaryService(
+            ollama_base_url=rag_service.ollama_base_url,
+            ollama_model=rag_service.ollama_model,
+            cache_file_path=cache_file_path
+        )
+
+        # キャッシュ無効化 -> 再生成
+        summary_service.invalidate_issue_cache(issue_id)
+        summary_data = summary_service.get_issue_summary_data(issue)
+
+        return {"issue_id": issue_id, "summaries": summary_data, "message": "サマリを再生成しました"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to regenerate summaries for issue {issue_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to regenerate summaries")
+
+
 @web_router.get("/api/web/cache/stats")
 async def get_cache_stats(rag_service: RAGService = Depends(get_rag_service)):
     """Get summary cache statistics."""
@@ -521,6 +534,119 @@ async def get_cache_stats(rag_service: RAGService = Depends(get_rag_service)):
     except Exception as e:
         logger.error(f"Failed to get cache stats: {e}")
         return {"error": str(e)}
+
+
+@web_router.get("/api/web/ai-provider/config")
+async def get_ai_provider_config():
+    """Get current AI provider configuration."""
+    try:
+        from .config import config
+        
+        # 利用可能なモデル一覧
+        available_models = {
+            "ollama": [
+                "llama3.2:1b", "llama3.2:3b", "llama3.2", "llama3.1", 
+                "codellama", "mistral", "qwen2.5", "phi3"
+            ],
+            "openai": [
+                "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"
+            ]
+        }
+        
+        available_embedding_models = {
+            "ollama": [
+                "llama3.2", "mxbai-embed-large", "nomic-embed-text", "all-minilm"
+            ],
+            "openai": [
+                "text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"
+            ]
+        }
+        
+        return {
+            "current_provider": config.ai_provider,
+            "current_config": {
+                "ollama_model": config.ollama_model,
+                "ollama_embedding_model": config.ollama_embedding_model,
+                "openai_model": config.openai_model,
+                "openai_embedding_model": config.openai_embedding_model,
+            },
+            "available_models": available_models,
+            "available_embedding_models": available_embedding_models,
+            "has_openai_key": bool(config.openai_api_key),
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get AI provider config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.post("/api/web/ai-provider/config")
+async def update_ai_provider_config(request: AIProviderSettingsRequest):
+    """Update AI provider configuration."""
+    try:
+        # Web configの更新
+        if request.ai_provider:
+            web_config.ai_provider = request.ai_provider
+        if request.ollama_model:
+            web_config.ollama_model = request.ollama_model
+        if request.ollama_embedding_model:
+            web_config.ollama_embedding_model = request.ollama_embedding_model
+        if request.openai_model:
+            web_config.openai_model = request.openai_model
+        if request.openai_embedding_model:
+            web_config.openai_embedding_model = request.openai_embedding_model
+        
+        # 設定をファイルに保存（今後の起動時に反映されるよう）
+        # 注意: 実際の設定反映にはサーバー再起動が必要
+        return {
+            "success": True, 
+            "message": f"AIプロバイダを {request.ai_provider} に更新しました。変更を完全に反映するには再起動が必要です。",
+            "restart_required": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to update AI provider config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.get("/api/web/ai-provider/test")
+async def test_ai_provider(provider: Optional[str] = None):
+    """Test AI provider connection."""
+    try:
+        from .config import config
+        from .ai_providers import create_ai_provider
+        
+        test_provider = provider or config.ai_provider
+        
+        # プロバイダのテスト
+        ai_provider = create_ai_provider(test_provider, config)
+        
+        # 簡単なテストクエリ
+        test_query = "テスト"
+        embedding = ai_provider.embed_query(test_query)
+        
+        if embedding and len(embedding) > 0:
+            completion = ai_provider.generate_completion("こんにちはと挨拶してください。")
+            return {
+                "success": True,
+                "provider": test_provider,
+                "embedding_dimension": len(embedding),
+                "test_completion": completion[:100] + "..." if completion and len(completion) > 100 else completion
+            }
+        else:
+            return {
+                "success": False,
+                "provider": test_provider,
+                "error": "エンベディング生成に失敗しました"
+            }
+            
+    except Exception as e:
+        logger.error(f"Failed to test AI provider: {e}")
+        return {
+            "success": False,
+            "provider": provider or "unknown",
+            "error": str(e)
+        }
 
 
 @web_router.post("/api/web/cache/clear")

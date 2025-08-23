@@ -281,7 +281,6 @@ update.bat
 | メソッド | エンドポイント | 説明 |
 |---------|---------------|------|
 | `GET` | `/api/web/issues` | Issue一覧取得（ページネーション・フィルター対応） |
-| `POST` | `/api/web/issues` | 新規Issue作成 |
 | `POST` | `/api/web/issues/{id}/advice` | 手動AIアドバイス生成 |
 | `GET` | `/api/web/projects` | プロジェクト一覧 |
 | `GET` | `/api/web/trackers` | トラッカー一覧 |
@@ -304,10 +303,7 @@ curl "http://localhost:8000/api/stats"
 # Web UI Issue一覧取得
 curl "http://localhost:8000/api/web/issues?page=1&limit=10"
 
-# Issue作成
-curl -X POST "http://localhost:8000/api/web/issues" \
-     -H "Content-Type: application/json" \
-     -d '{"project_id": 1, "tracker_id": 1, "subject": "テストIssue", "description": "説明"}'
+# Issue作成機能は廃止されました
 ```
 
 ## 🔄 動作フロー

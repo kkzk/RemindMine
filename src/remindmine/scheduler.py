@@ -1,4 +1,4 @@
-"""Scheduler for periodic RAG database updates and new issue monitoring."""
+"""定期的なRAGデータベース更新と新規チケット監視のためのスケジューラ"""
 
 import logging
 import threading
@@ -19,17 +19,18 @@ logger = logging.getLogger(__name__)
 
 
 class UpdateScheduler:
-    """Scheduler for periodic RAG updates and new issue monitoring."""
+    """定期的なRAG更新と新規チケット監視のためのスケジューラ"""
     
     def __init__(self, redmine_client: "RedmineClient", rag_service: "RAGService", 
                  interval_minutes: int, polling_interval_minutes: int = 5):
-        """Initialize scheduler.
+        """
+        スケジューラの初期化
         
-        Args:
-            redmine_client: Redmine client instance
-            rag_service: RAG service instance
-            interval_minutes: RAG update interval in minutes
-            polling_interval_minutes: New issue polling interval in minutes
+        引数:
+            redmine_client: Redmineクライアントインスタンス
+            rag_service: RAGサービスインスタンス
+            interval_minutes: RAG更新の間隔（分）
+            polling_interval_minutes: 新規チケット監視の間隔（分）
         """
         self.redmine_client = redmine_client
         self.rag_service = rag_service
@@ -45,7 +46,9 @@ class UpdateScheduler:
         self._state_file = "data/scheduler_state.json"
     
     def start(self):
-        """Start the scheduler."""
+        """
+        スケジューラを開始する
+        """
         if (self._rag_thread is not None and self._rag_thread.is_alive()) or \
            (self._polling_thread is not None and self._polling_thread.is_alive()):
             logger.warning("Scheduler is already running")
@@ -54,19 +57,21 @@ class UpdateScheduler:
         logger.info(f"Starting scheduler with {self.interval_minutes} minute RAG intervals and {self.polling_interval_minutes} minute polling intervals")
         self._stop_event.clear()
         
-        # Load or initialize last check time
+        # 最終チェック時刻をロードまたは初期化
         self._load_last_check_time()
         
-        # Start RAG update thread
+        # RAG更新用スレッド開始
         self._rag_thread = threading.Thread(target=self._run_rag_updates, daemon=True)
         self._rag_thread.start()
         
-        # Start new issue polling thread
+        # 新規チケット監視用スレッド開始
         self._polling_thread = threading.Thread(target=self._run_issue_polling, daemon=True)
         self._polling_thread.start()
     
     def stop(self):
-        """Stop the scheduler."""
+        """
+        スケジューラを停止する
+        """
         if self._rag_thread is None and self._polling_thread is None:
             return
         
@@ -86,34 +91,40 @@ class UpdateScheduler:
         if (self._rag_thread is None or not self._rag_thread.is_alive()) and \
            (self._polling_thread is None or not self._polling_thread.is_alive()):
             logger.info("Scheduler stopped successfully")
-            # Save final state
+            # 最終状態を保存
             self._save_last_check_time()
     
     def _run_rag_updates(self):
-        """Main RAG update loop."""
-        # Initial update
+        """
+        RAG更新のメインループ
+        """
+        # 初回更新
         self._update_rag()
         
         while not self._stop_event.is_set():
-            # Wait for interval or stop event
+            # 指定間隔または停止イベントまで待機
             if self._stop_event.wait(timeout=self.interval_seconds):
                 break
             
-            # Perform update
+            # RAG更新を実行
             self._update_rag()
     
     def _run_issue_polling(self):
-        """Main issue polling loop."""
+        """
+        新規チケット監視のメインループ
+        """
         while not self._stop_event.is_set():
-            # Wait for polling interval or stop event
+            # 監視間隔または停止イベントまで待機
             if self._stop_event.wait(timeout=self.polling_interval_seconds):
                 break
             
-            # Check for new issues
+            # 新規チケットの有無を確認
             self._check_new_issues()
 
     def _load_last_check_time(self):
-        """Load last check time from persistent storage."""
+        """
+        最終チェック時刻を永続ストレージから読み込む
+        """
         try:
             if os.path.exists(self._state_file):
                 with open(self._state_file, 'r') as f:
@@ -124,18 +135,20 @@ class UpdateScheduler:
                         logger.info(f"Loaded last check time: {self._last_check_time}")
                         return
             
-            # Initialize with current time if no saved state
+            # 保存状態がなければ現在時刻で初期化
             self._last_check_time = datetime.now(timezone.utc)
-            logger.info(f"Initialized last check time: {self._last_check_time}")
+            logger.info(f"最終チェック時刻を初期化: {self._last_check_time}")
             
         except Exception as e:
-            logger.error(f"Failed to load last check time: {e}")
+            logger.error(f"最終チェック時刻の読み込みに失敗: {e}")
             self._last_check_time = datetime.now(timezone.utc)
 
     def _save_last_check_time(self):
-        """Save last check time to persistent storage."""
+        """
+        最終チェック時刻を永続ストレージに保存する
+        """
         try:
-            # Ensure data directory exists
+            # dataディレクトリが存在しなければ作成
             os.makedirs(os.path.dirname(self._state_file), exist_ok=True)
             
             state = {
@@ -146,45 +159,48 @@ class UpdateScheduler:
                 json.dump(state, f)
                 
         except Exception as e:
-            logger.error(f"Failed to save last check time: {e}")
+            logger.error(f"最終チェック時刻の保存に失敗: {e}")
     
     def _update_rag(self):
-        """Update RAG database with latest issues."""
+        """
+        RAGデータベースを最新のチケットで更新する
+        """
         try:
-            logger.info("Starting scheduled RAG update...")
+            logger.info("定期RAG更新を開始...")
             
-            # Fetch all issues with journals
+            # ジャーナル付き全チケットを取得
             issues = self.redmine_client.get_all_issues_with_journals()
             
-            # Index issues in RAG
+            # チケットをRAGにインデックス
             self.rag_service.index_issues(issues)
             
-            logger.info("Scheduled RAG update completed successfully")
+            logger.info("定期RAG更新が正常に完了")
             
         except Exception as e:
-            logger.error(f"Scheduled RAG update failed: {e}")
+            logger.error(f"定期RAG更新に失敗: {e}")
     
     def _check_new_issues(self):
-        """Check for new issues and process them."""
+        """
+        新規チケットを確認し、必要な処理を行う
+        """
         try:
             if self._last_check_time is None:
-                # Initialize with current time if not set
+                # 未設定の場合は現在時刻で初期化
                 self._last_check_time = datetime.now(timezone.utc)
                 self._save_last_check_time()
                 return
             
-            # Get new issues since last check
+            # 最終チェック以降の新規チケットを取得
             new_issues = self.redmine_client.get_issues_since(self._last_check_time)
             
             if new_issues:
-                logger.info(f"Found {len(new_issues)} new issues since {self._last_check_time.astimezone().isoformat()}")
+                logger.info(f"{self._last_check_time.astimezone().isoformat()} 以降の新規チケットを {len(new_issues)} 件発見")
                 
-                # Process each new issue
+                # 各新規チケットを処理
                 for issue in new_issues:
                     self._process_new_issue(issue)
                 
-                # Update last check time to the creation time of the newest issue
-                # or current time if no issues found
+                # 最新チケットの作成日時で最終チェック時刻を更新
                 latest_time = max(
                     datetime.fromisoformat(issue['created_on'].replace('Z', '+00:00'))
                     for issue in new_issues
@@ -192,46 +208,47 @@ class UpdateScheduler:
                 self._last_check_time = latest_time
                 self._save_last_check_time()
             else:
-                # Update last check time to current time
+                # 新規がなければ現在時刻で更新
                 self._last_check_time = datetime.now(timezone.utc)
                 self._save_last_check_time()
                 
         except Exception as e:
-            logger.error(f"Failed to check for new issues: {e}")
+            logger.error(f"新規チケット確認に失敗: {e}")
     
     def _process_new_issue(self, issue: dict):
-        """Process a newly created issue.
+        """
+        新規作成されたチケットを処理する
         
-        Args:
-            issue: Issue dictionary from Redmine API
+        引数:
+            issue: Redmine APIからのチケット辞書
         """
         try:
             issue_id = issue['id']
             issue_subject = issue.get('subject', 'No subject')
             
-            logger.info(f"Processing new issue #{issue_id}: {issue_subject}")
+            logger.info(f"新規チケット #{issue_id}: {issue_subject} を処理中")
             
-            # Check if auto-advice is enabled
+            # 自動アドバイス機能が有効か確認
             from .web_config import web_config
             if not web_config.auto_advice_enabled:
-                logger.info(f"Auto-advice is disabled, skipping issue #{issue_id}")
+                logger.info(f"自動アドバイスは無効のため、チケット #{issue_id} をスキップ")
                 return
             
-            # Check if AI advice already exists
+            # 既にAIアドバイスが存在するか確認
             if self.redmine_client.has_ai_comment(issue_id, config.ai_comment_signature):
-                logger.info(f"Issue #{issue_id} already has AI advice, skipping")
+                logger.info(f"チケット #{issue_id} には既にAIアドバイスが存在するためスキップ")
                 return
             
-            # Generate AI advice for the new issue
+            # 新規チケットに対してAIアドバイスを生成
             advice = self.rag_service.generate_advice_for_issue(issue)
             
             if advice:
-                # Add to pending advice instead of posting immediately
+                # すぐに投稿せず、保留リストに追加
                 from .pending_advice import pending_advice_manager
                 advice_id = pending_advice_manager.add_pending_advice(issue, advice)
-                logger.info(f"Added AI advice for issue #{issue_id} to pending list with ID {advice_id}")
+                logger.info(f"チケット #{issue_id} のAIアドバイスを保留リストに追加（ID: {advice_id}）")
             else:
-                logger.warning(f"No AI advice generated for issue #{issue_id}")
+                logger.warning(f"チケット #{issue_id} に対してAIアドバイスが生成されませんでした")
                 
         except Exception as e:
-            logger.error(f"Failed to process new issue #{issue.get('id', 'unknown')}: {e}")
+            logger.error(f"新規チケット #{issue.get('id', 'unknown')} の処理に失敗: {e}")

@@ -70,11 +70,7 @@ class RemindMineApp {
             }
         });
 
-        // Issue creation form
-        document.getElementById('create-issue-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.createIssue();
-        });
+    // Issue作成機能は廃止されたためイベントリスナー削除
 
         // Settings events
         document.getElementById('auto-advice-toggle').addEventListener('change', (e) => {
@@ -96,6 +92,19 @@ class RemindMineApp {
 
         document.getElementById('clear-cache').addEventListener('click', () => {
             this.clearCache();
+        });
+
+        // AI Provider events
+        document.getElementById('ai-provider-select').addEventListener('change', (e) => {
+            this.handleProviderChange(e.target.value);
+        });
+
+        document.getElementById('test-ai-provider').addEventListener('click', () => {
+            this.testAIProvider();
+        });
+
+        document.getElementById('save-ai-provider').addEventListener('click', () => {
+            this.saveAIProviderSettings();
         });
 
         // Pending advice events (removed - no longer needed)
@@ -135,7 +144,8 @@ class RemindMineApp {
                 this.loadStatuses(),
                 this.loadUsers(),
                 this.loadSettings(),
-                this.loadCacheStats()
+                this.loadCacheStats(),
+                this.loadAIProviderConfig()
             ]);
             this.loadIssues();
         } catch (error) {
@@ -149,11 +159,10 @@ class RemindMineApp {
             case 'dashboard':
                 this.loadIssues();
                 break;
-            case 'create-issue':
-                // Refresh form data if needed
-                break;
+            // create-issue タブは削除済み
             case 'settings':
                 this.loadSystemInfo();
+                this.loadAIProviderConfig();
                 break;
         }
     }
@@ -239,9 +248,10 @@ class RemindMineApp {
 
     renderIssueCard(issue) {
         const hasAdvice = issue.ai_advice && issue.ai_advice.trim();
-        const hasSummary = issue.content_summary && issue.content_summary.trim();
-        const hasJournalSummary = issue.journal_summary && issue.journal_summary.trim();
-        const truncatedDescription = this.truncateText(issue.description || '', 150);
+    const hasSummary = issue.content_summary && issue.content_summary.trim();
+    // 統合サマリ仕様: journal_summary は使用しない
+    const hasJournalSummary = false;
+    const truncatedDescription = this.truncateText(issue.description || '', 150);
         
         return `
             <div class="issue-card">
@@ -285,9 +295,9 @@ class RemindMineApp {
                     <div class="issue-summary">
                         <div class="summary-header">
                             <i class="fas fa-file-text"></i>
-                            <strong>内容要約</strong>
+                            <strong>現状サマリ</strong>
                         </div>
-                        <div class="summary-content">
+                        <div class="summary-content scrollable">
                             ${this.escapeHtml(issue.content_summary)}
                         </div>
                     </div>
@@ -296,18 +306,7 @@ class RemindMineApp {
                         ${this.escapeHtml(truncatedDescription)}
                     </div>
                 ` : ''}
-
-                ${hasJournalSummary ? `
-                    <div class="journal-summary">
-                        <div class="summary-header">
-                            <i class="fas fa-comments"></i>
-                            <strong>コメント要約</strong>
-                        </div>
-                        <div class="summary-content">
-                            ${this.escapeHtml(issue.journal_summary)}
-                        </div>
-                    </div>
-                ` : ''}
+                
 
                 ${hasAdvice ? `
                     <div class="ai-advice">
@@ -315,8 +314,8 @@ class RemindMineApp {
                             <i class="fas fa-robot"></i>
                             AIアドバイス
                         </div>
-                        <div class="ai-advice-content">
-                            ${this.escapeHtml(this.truncateText(issue.ai_advice, 200))}
+                        <div class="ai-advice-content scrollable markdown-body" id="ai-advice-${issue.id}">
+                            ${this.renderMarkdown(issue.ai_advice || '')}
                         </div>
                     </div>
                 ` : ''}
@@ -327,6 +326,9 @@ class RemindMineApp {
                             <i class="fas fa-eye"></i> アドバイス詳細
                         </button>
                     ` : ''}
+                    <button class="btn btn-secondary" onclick="app.regenerateSummaries('${issue.id}')">
+                        <i class="fas fa-sync"></i> サマリ再作成
+                    </button>
                     <button class="btn btn-primary" onclick="app.generateAdvice('${issue.id}')">
                         <i class="fas fa-redo"></i> アドバイス再作成
                     </button>
@@ -340,9 +342,9 @@ class RemindMineApp {
 
     renderIssueCardWithAdvice(issue, pendingAdviceList) {
         const hasAdvice = issue.ai_advice && issue.ai_advice.trim();
-        const hasSummary = issue.content_summary && issue.content_summary.trim();
-        const hasJournalSummary = issue.journal_summary && issue.journal_summary.trim();
-        const truncatedDescription = this.truncateText(issue.description || '', 150);
+    const hasSummary = issue.content_summary && issue.content_summary.trim();
+    const hasJournalSummary = false; // 統合サマリ仕様
+    const truncatedDescription = this.truncateText(issue.description || '', 150);
         
         return `
             <div class="issue-card">
@@ -386,9 +388,9 @@ class RemindMineApp {
                     <div class="issue-summary">
                         <div class="summary-header">
                             <i class="fas fa-file-text"></i>
-                            <strong>内容要約</strong>
+                            <strong>現状サマリ</strong>
                         </div>
-                        <div class="summary-content">
+                        <div class="summary-content scrollable">
                             ${this.escapeHtml(issue.content_summary)}
                         </div>
                     </div>
@@ -397,18 +399,7 @@ class RemindMineApp {
                         ${this.escapeHtml(truncatedDescription)}
                     </div>
                 ` : ''}
-
-                ${hasJournalSummary ? `
-                    <div class="journal-summary">
-                        <div class="summary-header">
-                            <i class="fas fa-comments"></i>
-                            <strong>コメント要約</strong>
-                        </div>
-                        <div class="summary-content">
-                            ${this.escapeHtml(issue.journal_summary)}
-                        </div>
-                    </div>
-                ` : ''}
+                
 
                 ${hasAdvice ? `
                     <div class="ai-advice">
@@ -416,8 +407,8 @@ class RemindMineApp {
                             <i class="fas fa-robot"></i>
                             AIアドバイス (投稿済み)
                         </div>
-                        <div class="ai-advice-content">
-                            ${this.escapeHtml(this.truncateText(issue.ai_advice, 200))}
+                        <div class="ai-advice-content scrollable markdown-body" id="ai-advice-${issue.id}">
+                            ${this.renderMarkdown(issue.ai_advice || '')}
                         </div>
                     </div>
                 ` : ''}
@@ -431,12 +422,8 @@ class RemindMineApp {
                         ${pendingAdviceList.map(advice => `
                             <div class="pending-advice-item-inline" data-advice-id="${this.escapeHtml(advice.id)}">
                                 <div class="advice-content-inline">
-                                    <div class="advice-text" id="advice-${advice.id}">
-                                        ${this.escapeHtml(this.truncateText(advice.advice_content, 300))}
-                                        ${advice.advice_content.length > 300 ? 
-                                            `<button class="expand-toggle" onclick="app.toggleExpand('advice-${advice.id}', '${this.escapeForJs(advice.advice_content)}')">続きを読む</button>` : 
-                                            ''
-                                        }
+                                    <div class="advice-text scrollable markdown-body" id="advice-${advice.id}">
+                                        ${this.renderMarkdown(advice.advice_content || '')}
                                     </div>
                                 </div>
                                 <div class="advice-actions-inline">
@@ -458,6 +445,9 @@ class RemindMineApp {
                             <i class="fas fa-eye"></i> アドバイス詳細
                         </button>
                     ` : ''}
+                    <button class="btn btn-secondary" onclick="app.regenerateSummaries('${issue.id}')">
+                        <i class="fas fa-sync"></i> サマリ再作成
+                    </button>
                     <button class="btn btn-primary" onclick="app.generateAdvice('${issue.id}')">
                         <i class="fas fa-redo"></i> アドバイス再作成
                     </button>
@@ -487,7 +477,6 @@ class RemindMineApp {
             
             const projects = await response.json();
             this.populateSelect('project-filter', projects, 'id', 'name', '全プロジェクト');
-            this.populateSelect('issue-project', projects, 'id', 'name');
         } catch (error) {
             console.error('Failed to load projects:', error);
         }
@@ -499,7 +488,7 @@ class RemindMineApp {
             if (!response.ok) throw new Error('Failed to fetch trackers');
             
             const trackers = await response.json();
-            this.populateSelect('issue-tracker', trackers, 'id', 'name');
+            // issue-tracker セレクトは廃止
         } catch (error) {
             console.error('Failed to load trackers:', error);
         }
@@ -512,7 +501,6 @@ class RemindMineApp {
             
             const priorities = await response.json();
             this.populateSelect('priority-filter', priorities, 'id', 'name', '全優先度');
-            this.populateSelect('issue-priority', priorities, 'id', 'name');
         } catch (error) {
             console.error('Failed to load priorities:', error);
         }
@@ -536,7 +524,7 @@ class RemindMineApp {
             if (!response.ok) throw new Error('Failed to fetch users');
             
             const users = await response.json();
-            this.populateSelect('issue-assignee', users, 'id', 'name', '未割り当て');
+            // issue-assignee セレクトは廃止
         } catch (error) {
             console.error('Failed to load users:', error);
         }
@@ -591,46 +579,7 @@ class RemindMineApp {
         });
     }
 
-    async createIssue() {
-        try {
-            const formData = new FormData(document.getElementById('create-issue-form'));
-            const issueData = Object.fromEntries(formData.entries());
-
-            // Remove empty fields
-            Object.keys(issueData).forEach(key => {
-                if (!issueData[key]) {
-                    delete issueData[key];
-                }
-            });
-
-            const response = await fetch('/api/web/issues', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(issueData)
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Failed to create issue');
-            }
-
-            this.showNotification('Issueが正常に作成されました', 'success');
-            
-            // Reset form
-            document.getElementById('create-issue-form').reset();
-            
-            // Refresh issues if on dashboard
-            if (document.getElementById('dashboard').classList.contains('active')) {
-                this.loadIssues();
-            }
-
-        } catch (error) {
-            console.error('Failed to create issue:', error);
-            this.showNotification(`Issue作成に失敗しました: ${error.message}`, 'error');
-        }
-    }
+    // createIssue 機能は削除されました
 
     async generateAdvice(issueId) {
         try {
@@ -654,13 +603,32 @@ class RemindMineApp {
         }
     }
 
+    async regenerateSummaries(issueId) {
+        try {
+            this.showNotification('サマリ再生成中...', 'info');
+
+            const response = await fetch(`/api/web/issues/${issueId}/summaries/regenerate`, { method: 'POST' });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.detail || 'Failed to regenerate summaries');
+            }
+
+            this.showNotification('サマリを再生成しました', 'success');
+            // 再取得
+            this.loadIssues();
+        } catch (error) {
+            console.error('Failed to regenerate summaries:', error);
+            this.showNotification(`サマリ再生成に失敗しました: ${error.message}`, 'error');
+        }
+    }
+
     showAdviceModal(issueId, advice) {
         const modal = document.getElementById('advice-modal');
         const content = document.getElementById('advice-content');
         
         content.innerHTML = `
-            <div class="ai-advice-content">
-                ${this.escapeHtml(advice).replace(/\n/g, '<br>')}
+            <div class="ai-advice-content markdown-body">
+                ${this.renderMarkdown(advice)}
             </div>
         `;
         
@@ -837,7 +805,8 @@ class RemindMineApp {
     createPendingAdviceCard(advice) {
         const createdDate = new Date(advice.created_at).toLocaleString('ja-JP');
         const shortDescription = this.truncateText(advice.issue_description, 150);
-        const shortAdvice = this.truncateText(advice.advice_content, 300);
+    // PendingはRedmine表示と揃えるため全量Markdown表示
+    const fullAdvice = advice.advice_content;
         
         return `
             <div class="pending-advice-item" data-advice-id="${this.escapeHtml(advice.id)}">
@@ -868,12 +837,8 @@ class RemindMineApp {
                     
                     <div class="advice-content">
                         <h4><i class="fas fa-robot"></i> 生成されたAIアドバイス</h4>
-                        <div class="advice-text" id="advice-${advice.id}">
-                            ${this.escapeHtml(shortAdvice)}
-                            ${advice.advice_content.length > 300 ? 
-                                `<button class="expand-toggle" onclick="app.toggleExpand('advice-${advice.id}', '${this.escapeForJs(advice.advice_content)}')">続きを読む</button>` : 
-                                ''
-                            }
+                        <div class="advice-text markdown-body" id="advice-${advice.id}">
+                            ${this.renderMarkdown(fullAdvice)}
                         </div>
                     </div>
                 </div>
@@ -995,6 +960,30 @@ class RemindMineApp {
         return text.replace(/`/g, '\\`').replace(/\$/g, '\\$').replace(/\\/g, '\\\\');
     }
 
+    renderMarkdown(text) {
+        if (!text) return '';
+        try {
+            if (window.marked && window.DOMPurify) {
+                // Set options once
+                if (!this._markedConfigured) {
+                    if (marked.setOptions) {
+                        marked.setOptions({
+                            breaks: true,
+                            gfm: true
+                        });
+                    }
+                    this._markedConfigured = true;
+                }
+                const raw = marked.parse(text);
+                return DOMPurify.sanitize(raw);
+            }
+        } catch (e) {
+            console.warn('Markdown render failed, fallback to plain text:', e);
+        }
+        // Fallback plain text
+        return this.escapeHtml(text).replace(/\n/g, '<br>');
+    }
+
     truncateText(text, maxLength) {
         if (!text || text.length <= maxLength) return text;
         return text.substring(0, maxLength) + '...';
@@ -1053,16 +1042,190 @@ class RemindMineApp {
             
             if (data.success) {
                 this.showNotification(data.message, 'success');
-                await this.loadCacheStats(); // Refresh stats
+                await this.loadCacheStats();
             } else {
-                this.showNotification(`キャッシュクリアに失敗しました: ${data.error}`, 'error');
+                this.showNotification(data.error || 'キャッシュクリアに失敗しました', 'error');
             }
         } catch (error) {
             console.error('Error clearing cache:', error);
-            this.showNotification('キャッシュクリア中にエラーが発生しました', 'error');
+            this.showNotification('キャッシュクリアに失敗しました', 'error');
+        }
+    }
+
+    async loadAIProviderConfig() {
+        try {
+            const response = await fetch('/api/web/ai-provider/config');
+            const data = await response.json();
+            
+            // プロバイダ選択状態を設定
+            document.getElementById('ai-provider-select').value = data.current_provider;
+            
+            // モデル選択肢を設定
+            this.populateModelOptions(data.available_models, data.available_embedding_models);
+            
+            // 現在の設定を反映
+            document.getElementById('ollama-model-select').value = data.current_config.ollama_model;
+            document.getElementById('ollama-embedding-model-select').value = data.current_config.ollama_embedding_model;
+            document.getElementById('openai-model-select').value = data.current_config.openai_model;
+            document.getElementById('openai-embedding-model-select').value = data.current_config.openai_embedding_model;
+            
+            // OpenAI APIキー状態を表示
+            const keyStatus = document.getElementById('openai-key-status');
+            if (data.has_openai_key) {
+                keyStatus.innerHTML = '<i class="fas fa-check-circle"></i> OpenAI APIキーが設定されています';
+                keyStatus.className = 'api-key-status success';
+            } else {
+                keyStatus.innerHTML = '<i class="fas fa-exclamation-triangle"></i> APIキーが設定されていません。環境変数OPENAI_API_KEYを設定してください。';
+                keyStatus.className = 'api-key-status warning';
+            }
+            
+            // プロバイダ設定表示を更新
+            this.handleProviderChange(data.current_provider);
+            
+        } catch (error) {
+            console.error('Error loading AI provider config:', error);
+            this.showNotification('AIプロバイダ設定の読み込みに失敗しました', 'error');
+        }
+    }
+
+    populateModelOptions(availableModels, availableEmbeddingModels) {
+        // Ollamaモデル
+        const ollamaModelSelect = document.getElementById('ollama-model-select');
+        ollamaModelSelect.innerHTML = '';
+        availableModels.ollama.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            ollamaModelSelect.appendChild(option);
+        });
+
+        // Ollama Embeddingモデル
+        const ollamaEmbeddingSelect = document.getElementById('ollama-embedding-model-select');
+        ollamaEmbeddingSelect.innerHTML = '';
+        availableEmbeddingModels.ollama.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            ollamaEmbeddingSelect.appendChild(option);
+        });
+
+        // OpenAIモデル
+        const openaiModelSelect = document.getElementById('openai-model-select');
+        openaiModelSelect.innerHTML = '';
+        availableModels.openai.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            openaiModelSelect.appendChild(option);
+        });
+
+        // OpenAI Embeddingモデル
+        const openaiEmbeddingSelect = document.getElementById('openai-embedding-model-select');
+        openaiEmbeddingSelect.innerHTML = '';
+        availableEmbeddingModels.openai.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            openaiEmbeddingSelect.appendChild(option);
+        });
+    }
+
+    handleProviderChange(provider) {
+        const ollamaSettings = document.getElementById('ollama-settings');
+        const openaiSettings = document.getElementById('openai-settings');
+        
+        if (provider === 'ollama') {
+            ollamaSettings.style.display = 'block';
+            openaiSettings.style.display = 'none';
+        } else if (provider === 'openai') {
+            ollamaSettings.style.display = 'none';
+            openaiSettings.style.display = 'block';
+        }
+    }
+
+    async testAIProvider() {
+        const provider = document.getElementById('ai-provider-select').value;
+        const testButton = document.getElementById('test-ai-provider');
+        
+        testButton.disabled = true;
+        testButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> テスト中...';
+        
+        try {
+            const response = await fetch(`/api/web/ai-provider/test?provider=${provider}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showNotification(
+                    `${data.provider} プロバイダテスト成功！\n` +
+                    `エンベディング次元: ${data.embedding_dimension}\n` +
+                    `テスト応答: ${data.test_completion}`,
+                    'success'
+                );
+            } else {
+                this.showNotification(
+                    `${data.provider} プロバイダテスト失敗: ${data.error}`,
+                    'error'
+                );
+            }
+        } catch (error) {
+            console.error('Error testing AI provider:', error);
+            this.showNotification('AIプロバイダテストに失敗しました', 'error');
+        } finally {
+            testButton.disabled = false;
+            testButton.innerHTML = '<i class="fas fa-vial"></i> AIプロバイダテスト';
+        }
+    }
+
+    async saveAIProviderSettings() {
+        const saveButton = document.getElementById('save-ai-provider');
+        
+        const settings = {
+            ai_provider: document.getElementById('ai-provider-select').value,
+            ollama_model: document.getElementById('ollama-model-select').value,
+            ollama_embedding_model: document.getElementById('ollama-embedding-model-select').value,
+            openai_model: document.getElementById('openai-model-select').value,
+            openai_embedding_model: document.getElementById('openai-embedding-model-select').value,
+        };
+        
+        saveButton.disabled = true;
+        saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+        
+        try {
+            const response = await fetch('/api/web/ai-provider/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(settings),
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showNotification(data.message, 'success');
+                if (data.restart_required) {
+                    // 再起動が必要な旨を強調表示
+                    setTimeout(() => {
+                        this.showNotification('設定を完全に反映するにはサーバーの再起動が必要です', 'warning');
+                    }, 3000);
+                }
+            } else {
+                this.showNotification('AIプロバイダ設定の保存に失敗しました', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving AI provider settings:', error);
+            this.showNotification('AIプロバイダ設定の保存に失敗しました', 'error');
+        } finally {
+            saveButton.disabled = false;
+            saveButton.innerHTML = '<i class="fas fa-save"></i> プロバイダ設定保存';
         }
     }
 }
+
+// Initialize the app when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    new RemindMineApp();
+});
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
