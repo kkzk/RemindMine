@@ -302,6 +302,9 @@ class RemindMineApp {
                         <div class="summary-header">
                             <i class="fas fa-file-text"></i>
                             <strong>現状サマリ</strong>
+                            <button class="btn btn-secondary btn-sm summary-regenerate-btn" onclick="app.regenerateSummaries('${issue.id}')" title="サマリ再作成">
+                                <i class="fas fa-sync"></i>
+                            </button>
                         </div>
                         <div class="summary-content scrollable">
                             ${this.escapeHtml(issue.content_summary)}
@@ -332,9 +335,6 @@ class RemindMineApp {
                             <i class="fas fa-eye"></i> アドバイス詳細
                         </button>
                     ` : ''}
-                    <button class="btn btn-secondary" onclick="app.regenerateSummaries('${issue.id}')">
-                        <i class="fas fa-sync"></i> サマリ再作成
-                    </button>
                     <button class="btn btn-primary" onclick="app.generateAdvice('${issue.id}')">
                         <i class="fas fa-redo"></i> アドバイス再作成
                     </button>
@@ -395,6 +395,9 @@ class RemindMineApp {
                         <div class="summary-header">
                             <i class="fas fa-file-text"></i>
                             <strong>現状サマリ</strong>
+                            <button class="btn btn-secondary btn-sm summary-regenerate-btn" onclick="app.regenerateSummaries('${issue.id}')" title="サマリ再作成">
+                                <i class="fas fa-sync"></i>
+                            </button>
                         </div>
                         <div class="summary-content scrollable">
                             ${this.escapeHtml(issue.content_summary)}
@@ -451,9 +454,6 @@ class RemindMineApp {
                             <i class="fas fa-eye"></i> アドバイス詳細
                         </button>
                     ` : ''}
-                    <button class="btn btn-secondary" onclick="app.regenerateSummaries('${issue.id}')">
-                        <i class="fas fa-sync"></i> サマリ再作成
-                    </button>
                     <button class="btn btn-primary" onclick="app.generateAdvice('${issue.id}')">
                         <i class="fas fa-redo"></i> アドバイス再作成
                     </button>
