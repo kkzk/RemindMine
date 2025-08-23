@@ -2,10 +2,9 @@
 
 変更点:
  - 要約保存時の強制トランケートを廃止し、LLM出力(=フル要約)をそのままキャッシュへ保存。
- - 環境変数でプロンプト上の目安文字数・トランケート有無を制御可能に。
-     * CONTENT_SUMMARY_PROMPT_LIMIT (既定: 500)
-     * JOURNAL_SUMMARY_PROMPT_LIMIT (既定: 800)
-     * SUMMARY_ENFORCE_TRUNCATE (true/false 既定: false) -> true の場合のみ末尾を ... で切り詰め
+ - プロンプト内の目安文字数 (LIMIT) をテンプレート側で固定 (200) 指定する方式へ変更。
+ - 以前使用していた CONTENT_SUMMARY_PROMPT_LIMIT / JOURNAL_SUMMARY_PROMPT_LIMIT 環境変数は廃止。
+ - SUMMARY_ENFORCE_TRUNCATE のみ継続 (true/false 既定: false)。true の場合はテンプレートの想定(=200)を上限とみなし末尾を ... で切り詰め。
 """
 
 import logging
@@ -23,10 +22,8 @@ class SummaryService:
     def __init__(self, ollama_base_url: str, ollama_model: str, cache_file_path: Optional[str] = None):
         self.ollama_base_url = ollama_base_url
         self.ollama_model = ollama_model
-
-        # 設定 (環境変数)
-        self.content_summary_prompt_limit = int(os.getenv('CONTENT_SUMMARY_PROMPT_LIMIT', '500'))
-        self.journal_summary_prompt_limit = int(os.getenv('JOURNAL_SUMMARY_PROMPT_LIMIT', '800'))
+        # 設定: 文字数目安はテンプレート固定 (200)。環境変数による変更は廃止。
+        self.PROMPT_LIMIT = 200
         self.enforce_truncate = os.getenv('SUMMARY_ENFORCE_TRUNCATE', 'false').lower() in ('1', 'true', 'yes')
 
         # Prompt templates directory (same package /prompts)
@@ -80,7 +77,7 @@ class SummaryService:
         
         Args:
             issue: Issue data from Redmine
-            max_length: (任意) プロンプトへ渡す目安文字数。None の場合は content_summary_prompt_limit を使用。
+            max_length: (非推奨) 以前はプロンプトへ渡す目安文字数を指定。現在はテンプレート固定 (200) のため無視される。
             
         Returns:
             Summarized content or None if failed
@@ -89,8 +86,9 @@ class SummaryService:
             subject = issue.get("subject", "")
             description = issue.get("description", "")
 
-            prompt_limit = max_length if max_length is not None else self.content_summary_prompt_limit
-            
+            # 文字数上限はテンプレート固定 (200)。引数 max_length は後方互換のため受け取るが無視。
+            prompt_limit = self.PROMPT_LIMIT
+
             if not subject and not description:
                 return None
             
@@ -106,9 +104,8 @@ class SummaryService:
             template = self._load_template('content_summary.txt')
             if not template:
                 return None
-            prompt = (template
-                      .replace('{{LIMIT}}', str(prompt_limit))
-                      .replace('{{CONTENT}}', content))
+            # テンプレート側で LIMIT=200 を直接記述しているため {{LIMIT}} 置換は不要。
+            prompt = template.replace('{{CONTENT}}', content)
             
             summary = self._chat_with_ollama(prompt)
             if summary:
@@ -130,14 +127,14 @@ class SummaryService:
         
         Args:
             issue: Issue data from Redmine with journals
-            max_length: (任意) プロンプトへ渡す目安文字数。None の場合は journal_summary_prompt_limit を使用。
+            max_length: (非推奨) 以前はプロンプトへ渡す目安文字数を指定。現在はテンプレート固定 (200) のため無視される。
             
         Returns:
             Summarized journal content or None if no journals or failed
         """
         try:
             journals = issue.get("journals", [])
-            prompt_limit = max_length if max_length is not None else self.journal_summary_prompt_limit
+            prompt_limit = self.PROMPT_LIMIT  # テンプレート固定 200
             if not journals:
                 return None
             
@@ -168,9 +165,7 @@ class SummaryService:
             template = self._load_template('journal_summary.txt')
             if not template:
                 return None
-            prompt = (template
-                      .replace('{{LIMIT}}', str(prompt_limit))
-                      .replace('{{JOURNALS}}', all_journals))
+            prompt = template.replace('{{JOURNALS}}', all_journals)
             
             summary = self._chat_with_ollama(prompt)
             if summary:
