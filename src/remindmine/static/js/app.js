@@ -299,8 +299,8 @@ class RemindMineApp {
                             <i class="fas fa-robot"></i>
                             AIアドバイス
                         </div>
-                        <div class="ai-advice-content scrollable" id="ai-advice-${issue.id}">
-                            ${this.escapeHtml(issue.ai_advice || '')}
+                        <div class="ai-advice-content scrollable markdown-body" id="ai-advice-${issue.id}">
+                            ${this.renderMarkdown(issue.ai_advice || '')}
                         </div>
                     </div>
                 ` : ''}
@@ -392,8 +392,8 @@ class RemindMineApp {
                             <i class="fas fa-robot"></i>
                             AIアドバイス (投稿済み)
                         </div>
-                        <div class="ai-advice-content scrollable" id="ai-advice-${issue.id}">
-                            ${this.escapeHtml(issue.ai_advice || '')}
+                        <div class="ai-advice-content scrollable markdown-body" id="ai-advice-${issue.id}">
+                            ${this.renderMarkdown(issue.ai_advice || '')}
                         </div>
                     </div>
                 ` : ''}
@@ -407,8 +407,8 @@ class RemindMineApp {
                         ${pendingAdviceList.map(advice => `
                             <div class="pending-advice-item-inline" data-advice-id="${this.escapeHtml(advice.id)}">
                                 <div class="advice-content-inline">
-                                    <div class="advice-text scrollable" id="advice-${advice.id}">
-                                        ${this.escapeHtml(advice.advice_content || '')}
+                                    <div class="advice-text scrollable markdown-body" id="advice-${advice.id}">
+                                        ${this.renderMarkdown(advice.advice_content || '')}
                                     </div>
                                 </div>
                                 <div class="advice-actions-inline">
@@ -612,8 +612,8 @@ class RemindMineApp {
         const content = document.getElementById('advice-content');
         
         content.innerHTML = `
-            <div class="ai-advice-content">
-                ${this.escapeHtml(advice).replace(/\n/g, '<br>')}
+            <div class="ai-advice-content markdown-body">
+                ${this.renderMarkdown(advice)}
             </div>
         `;
         
@@ -790,7 +790,8 @@ class RemindMineApp {
     createPendingAdviceCard(advice) {
         const createdDate = new Date(advice.created_at).toLocaleString('ja-JP');
         const shortDescription = this.truncateText(advice.issue_description, 150);
-        const shortAdvice = this.truncateText(advice.advice_content, 300);
+    // PendingはRedmine表示と揃えるため全量Markdown表示
+    const fullAdvice = advice.advice_content;
         
         return `
             <div class="pending-advice-item" data-advice-id="${this.escapeHtml(advice.id)}">
@@ -821,12 +822,8 @@ class RemindMineApp {
                     
                     <div class="advice-content">
                         <h4><i class="fas fa-robot"></i> 生成されたAIアドバイス</h4>
-                        <div class="advice-text" id="advice-${advice.id}">
-                            ${this.escapeHtml(shortAdvice)}
-                            ${advice.advice_content.length > 300 ? 
-                                `<button class="expand-toggle" onclick="app.toggleExpand('advice-${advice.id}', '${this.escapeForJs(advice.advice_content)}')">続きを読む</button>` : 
-                                ''
-                            }
+                        <div class="advice-text markdown-body" id="advice-${advice.id}">
+                            ${this.renderMarkdown(fullAdvice)}
                         </div>
                     </div>
                 </div>
@@ -946,6 +943,30 @@ class RemindMineApp {
     escapeForJs(text) {
         if (!text) return '';
         return text.replace(/`/g, '\\`').replace(/\$/g, '\\$').replace(/\\/g, '\\\\');
+    }
+
+    renderMarkdown(text) {
+        if (!text) return '';
+        try {
+            if (window.marked && window.DOMPurify) {
+                // Set options once
+                if (!this._markedConfigured) {
+                    if (marked.setOptions) {
+                        marked.setOptions({
+                            breaks: true,
+                            gfm: true
+                        });
+                    }
+                    this._markedConfigured = true;
+                }
+                const raw = marked.parse(text);
+                return DOMPurify.sanitize(raw);
+            }
+        } catch (e) {
+            console.warn('Markdown render failed, fallback to plain text:', e);
+        }
+        // Fallback plain text
+        return this.escapeHtml(text).replace(/\n/g, '<br>');
     }
 
     truncateText(text, maxLength) {
