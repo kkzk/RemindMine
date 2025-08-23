@@ -17,6 +17,7 @@
 import logging
 from typing import List, Dict, Any, Optional
 import hashlib
+import json
 import chromadb
 from chromadb.config import Settings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -124,9 +125,11 @@ class RAGService:
             chunk_size=1000,
             chunk_overlap=200
         )
-        
-        # プロンプトテンプレート格納ディレクトリ
+        # プロンプトテンプレート格納ディレクトリ (インデックス再構築関連の前処理)
         self.prompts_dir = os.path.join(os.path.dirname(__file__), 'prompts')
+        # 差分インデックス状態ファイル (issue_id -> hash 等)
+        data_dir = os.path.dirname(chromadb_path)
+        self.index_state_path = os.path.join(data_dir, 'rag_index_state.json')
 
     def _load_prompt_template(self, filename: str) -> Optional[str]:
         """プロンプトテンプレート (プレーンテキスト) を読み込み。存在しない/失敗時は None。"""
@@ -138,63 +141,114 @@ class RAGService:
             logger.error(f"Failed to load prompt template {filename}: {e}")
             return None
     
-    def index_issues(self, issues: List[Dict[str, Any]]) -> int:
-        """課題一覧を ChromaDB に再構築インデックスし、投入したチャンク数を返す。
+    def _load_index_state(self) -> Dict[str, Any]:
+        """前回インデックス状態 (JSON) を読み込み。存在しなければ初期状態。"""
+        try:
+            with open(self.index_state_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            return {"issues": {}, "embedding_model": getattr(self.ai_provider, 'embedding_model', 'unknown'), "version": 1}
 
-        全再構築 (破壊的) ポリシー: 既存コレクションを削除→再作成→全件投入。
-        差分更新が必要になった場合はここを変更する。
+    def _save_index_state(self, state: Dict[str, Any]) -> None:
+        try:
+            with open(self.index_state_path, 'w', encoding='utf-8') as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save index state: {e}")
+
+    def _hash_issue(self, issue: Dict[str, Any]) -> str:
+        """issue 全体の内容ハッシュ (件名+説明+コメント) を生成。"""
+        content = self._create_issue_content(issue)
+        return hashlib.sha256(content.encode('utf-8')).hexdigest()
+
+    def index_issues(self, issues: List[Dict[str, Any]], full_rebuild: bool = False) -> int:
+        """課題一覧を差分インデックス。戻り値は『今回新規/更新で追加したチャンク数』。
+
+        改善点:
+          - 変更のない issue は再埋め込みしない
+          - 削除された issue のチャンクを除去
+          - 埋め込みモデルが変わった場合は自動で full rebuild
 
         Args:
-            issues: Redmine API から取得した課題辞書のリスト
+            issues: Redmine から取得した最新全課題
+            full_rebuild: 強制で全再構築したい場合 True
         """
-        logger.info(f"Indexing {len(issues)} issues...")
+        if not issues:
+            logger.warning("No issues provided for indexing")
+            return 0
 
-        # 既存コレクションを削除 (存在しない場合は例外を握り潰す)
-        try:
-            self.chroma_client.delete_collection("redmine_issues")
-        except Exception as e:
-            logger.debug(f"Collection deletion failed (may not exist): {e}")
-
-        # コレクション再生成（最新の埋め込みモデル/次元情報をメタデータに保持）
+        current_embedding_model = getattr(self.ai_provider, 'embedding_model', 'unknown')
         expected_dim = getattr(self.ai_provider, 'default_dimension', None)
-        embedding_model = getattr(self.ai_provider, 'embedding_model', 'unknown')
-        self.collection = self.chroma_client.get_or_create_collection(
-            name="redmine_issues",
-            metadata={
-                "hnsw:space": "cosine",
-                "embedding_model": embedding_model,
-                "embedding_dimension": expected_dim
-            }
-        )
+        state = self._load_index_state()
+        prev_model = state.get('embedding_model')
+        if prev_model != current_embedding_model:
+            logger.info(f"Embedding model changed: {prev_model} -> {current_embedding_model}; forcing full rebuild")
+            full_rebuild = True
+
+        if full_rebuild:
+            logger.info(f"Rebuilding index for {len(issues)} issues (full rebuild)...")
+            try:
+                self.chroma_client.delete_collection("redmine_issues")
+            except Exception as e:
+                logger.debug(f"Collection deletion failed (may not exist): {e}")
+            self.collection = self.chroma_client.get_or_create_collection(
+                name="redmine_issues",
+                metadata={
+                    "hnsw:space": "cosine",
+                    "embedding_model": current_embedding_model,
+                    "embedding_dimension": expected_dim
+                }
+            )
+            # 全件を変更扱いとして進めるため状態を空に
+            state['issues'] = {}
+
+        issue_state: Dict[str, Any] = state.get('issues', {})
+        latest_issue_ids = {str(i['id']) for i in issues}
+        existing_issue_ids = set(issue_state.keys())
+
+        # 削除された issue をコレクションから削除
+        removed_issue_ids = existing_issue_ids - latest_issue_ids
+        removed_count = 0
+        for rid in removed_issue_ids:
+            try:
+                self.collection.delete(where={"issue_id": int(rid)})
+                removed_count += 1
+                issue_state.pop(rid, None)
+            except Exception as e:
+                logger.error(f"Failed to delete removed issue {rid}: {e}")
 
         documents: List[str] = []
         metadatas: List[Dict[str, Any]] = []
         ids: List[str] = []
+        added_chunk_total = 0
+        new_issues = 0
+        updated_issues = 0
+        skipped_issues = 0
 
-        # 埋め込み再計算判定のためのメタ情報方針:
-        # - source_type: データ種別 (将来 Issue 以外も扱う想定)
-        # - source_id: 元データ ID
-        # - source_updated_on: 元データの更新日時 (Redmine の updated_on など)
-        # - chunk_index: チャンク番号
-        # - chunk_hash: チャンクテキストの SHA256(先頭16桁)
-        # - chunk_char_length: 文字数 (統計/閾値調整用)
-        # - embedding_model_at_index: 生成時埋め込みモデル
-        embedding_model_at_index = getattr(self.ai_provider, 'embedding_model', 'unknown')
+        embedding_model_at_index = current_embedding_model
 
         for issue in issues:
-            # 課題データから全文 (検索対象テキスト) を組み立て
+            issue_id_str = str(issue['id'])
+            issue_hash = self._hash_issue(issue)
+            prev = issue_state.get(issue_id_str)
+            if prev and prev.get('hash') == issue_hash and not full_rebuild:
+                skipped_issues += 1
+                continue
+
+            # 既存チャンク削除 (更新/新規問わず安全に再投入)
+            if prev:
+                try:
+                    self.collection.delete(where={"issue_id": issue['id']})
+                except Exception as e:
+                    logger.debug(f"Delete existing chunks for issue {issue['id']} failed: {e}")
+
             content = self._create_issue_content(issue)
-
-            # 長文はチャンク分割
             chunks = self.text_splitter.split_text(content)
-
             issue_updated_on = issue.get('updated_on') or issue.get('updated_at') or ''
 
             for i, chunk in enumerate(chunks):
                 doc_id = f"issue_{issue['id']}_chunk_{i}"
-                # chunk ハッシュ (そのままの文字列で SHA256 → 16文字短縮)
                 chunk_hash = hashlib.sha256(chunk.encode('utf-8')).hexdigest()[:16]
-
                 documents.append(chunk)
                 metadatas.append({
                     "issue_id": issue['id'],
@@ -203,7 +257,6 @@ class RAGService:
                     "priority": issue.get('priority', {}).get('name', ''),
                     "tracker": issue.get('tracker', {}).get('name', ''),
                     "chunk_index": i,
-                    # 新規メタ情報
                     "source_type": "issue",
                     "source_id": issue['id'],
                     "source_updated_on": issue_updated_on,
@@ -212,28 +265,46 @@ class RAGService:
                     "embedding_model_at_index": embedding_model_at_index,
                 })
                 ids.append(doc_id)
+            added_chunk_total += len(chunks)
 
+            if prev:
+                updated_issues += 1
+            else:
+                new_issues += 1
+
+            issue_state[issue_id_str] = {
+                "hash": issue_hash,
+                "chunk_count": len(chunks),
+                "updated_on": issue_updated_on,
+            }
+
+        # 埋め込み (新規/更新分のみ)
         if documents:
             try:
                 embeddings = self.ai_provider.embed_documents(documents)
+                if len(embeddings) != len(documents):
+                    logger.error("Embedding count mismatch; aborting incremental index batch")
+                    return 0
+                normalized_embeddings = [list(vec) for vec in embeddings]
+                self.collection.add(
+                    documents=documents,
+                    metadatas=metadatas,  # type: ignore[arg-type]
+                    ids=ids,
+                    embeddings=normalized_embeddings  # type: ignore[arg-type]
+                )
             except Exception as e:
-                logger.error(f"Failed to embed documents during indexing: {e}")
-                raise
-
-            if len(embeddings) != len(documents):
-                logger.error("Embedding count mismatch; aborting index.")
+                logger.error(f"Failed to embed incremental documents: {e}")
                 return 0
 
-            normalized_embeddings = [list(vec) for vec in embeddings]
-            self.collection.add(  # type: ignore[arg-type]
-                documents=documents,
-                metadatas=metadatas,  # type: ignore[arg-type]
-                ids=ids,
-                embeddings=normalized_embeddings  # type: ignore[arg-type]
-            )
+        # 状態保存
+        state['issues'] = issue_state
+        state['embedding_model'] = current_embedding_model
+        self._save_index_state(state)
 
-        logger.info(f"Indexed {len(documents)} document chunks")
-        return len(documents)
+        logger.info(
+            f"Index update done: new={new_issues}, updated={updated_issues}, skipped={skipped_issues}, removed={removed_count}, chunks_added={added_chunk_total}"
+        )
+        return added_chunk_total
     
     def search_similar_issues(self, query: str, n_results: int = 5, exclude_issue_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """類似課題チャンクを検索。
