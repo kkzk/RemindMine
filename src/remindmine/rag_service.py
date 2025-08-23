@@ -95,11 +95,28 @@ class RAGService:
             settings=Settings(anonymized_telemetry=False)
         )
         
-        # コレクション取得 (無ければ作成)。距離空間は cosine
+        # コレクション取得 (無ければ作成)。距離空間 + 埋め込みモデル情報をメタデータへ保持
+        # 既存コレクションの埋め込み次元と現在プロバイダの次元が異なる場合は再構築が必要。
+        expected_dim = getattr(self.ai_provider, 'default_dimension', None)
+        embedding_model = getattr(self.ai_provider, 'embedding_model', 'unknown')
         self.collection = self.chroma_client.get_or_create_collection(
             name="redmine_issues",
-            metadata={"hnsw:space": "cosine"}
+            metadata={
+                "hnsw:space": "cosine",
+                "embedding_model": embedding_model,
+                "embedding_dimension": expected_dim
+            }
         )
+        try:
+            col_meta = self.collection.metadata or {}
+            stored_dim = col_meta.get('embedding_dimension')
+            if stored_dim and expected_dim and stored_dim != expected_dim:
+                logger.warning(
+                    f"Embedding dimension mismatch detected (stored={stored_dim}, current={expected_dim}). "
+                    "Call index_issues() to rebuild the collection."
+                )
+        except Exception:  # メタデータ未対応バージョン等は無視
+            pass
         
         # 長文分割: 再利用コストを避けるためインスタンス保持
         self.text_splitter = RecursiveCharacterTextSplitter(
@@ -120,8 +137,8 @@ class RAGService:
             logger.error(f"Failed to load prompt template {filename}: {e}")
             return None
     
-    def index_issues(self, issues: List[Dict[str, Any]]) -> None:
-        """課題一覧を ChromaDB に再構築インデックス。
+    def index_issues(self, issues: List[Dict[str, Any]]) -> int:
+        """課題一覧を ChromaDB に再構築インデックスし、投入したチャンク数を返す。
 
         全再構築 (破壊的) ポリシー: 既存コレクションを削除→再作成→全件投入。
         差分更新が必要になった場合はここを変更する。
@@ -137,10 +154,16 @@ class RAGService:
         except Exception as e:
             logger.debug(f"Collection deletion failed (may not exist): {e}")
         
-        # コレクション再生成
+        # コレクション再生成（最新の埋め込みモデル/次元情報をメタデータに保持）
+        expected_dim = getattr(self.ai_provider, 'default_dimension', None)
+        embedding_model = getattr(self.ai_provider, 'embedding_model', 'unknown')
         self.collection = self.chroma_client.get_or_create_collection(
             name="redmine_issues",
-            metadata={"hnsw:space": "cosine"}
+            metadata={
+                "hnsw:space": "cosine",
+                "embedding_model": embedding_model,
+                "embedding_dimension": expected_dim
+            }
         )
         
         documents = []
@@ -150,10 +173,10 @@ class RAGService:
         for issue in issues:
             # 課題データから全文 (検索対象テキスト) を組み立て
             content = self._create_issue_content(issue)
-            
+
             # 長文はチャンク分割
             chunks = self.text_splitter.split_text(content)
-            
+
             for i, chunk in enumerate(chunks):
                 doc_id = f"issue_{issue['id']}_chunk_{i}"
                 documents.append(chunk)
@@ -166,16 +189,31 @@ class RAGService:
                     "chunk_index": i
                 })
                 ids.append(doc_id)
-        
+
         if documents:
-            # コレクション追加（エンベディングは後でクエリ時に行う）
-            self.collection.add(
+            # 埋め込みを事前生成して格納（クエリ時との次元不一致を防ぐ）
+            # 大量データの場合はバッチ化 (簡易実装: 一括 / 必要なら後で最適化)
+            try:
+                embeddings = self.ai_provider.embed_documents(documents)
+            except Exception as e:
+                logger.error(f"Failed to embed documents during indexing: {e}")
+                raise
+
+            if len(embeddings) != len(documents):
+                logger.error("Embedding count mismatch; aborting index.")
+                return 0
+
+            # Chroma の型定義差異を回避するため list(list(...)) で正規化
+            normalized_embeddings = [list(vec) for vec in embeddings]
+            self.collection.add(  # type: ignore[arg-type]
                 documents=documents,
                 metadatas=metadatas,
-                ids=ids
+                ids=ids,
+                embeddings=normalized_embeddings  # type: ignore[arg-type]
             )
-            
+
         logger.info(f"Indexed {len(documents)} document chunks")
+        return len(documents)
     
     def search_similar_issues(self, query: str, n_results: int = 5, exclude_issue_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """類似課題チャンクを検索。
@@ -194,6 +232,19 @@ class RAGService:
             
             # AIプロバイダ経由でクエリエンベディング生成
             query_embedding = self.ai_provider.embed_query(query)
+
+            # コレクションに保持されている埋め込み次元とクエリ埋め込み次元を検証
+            try:
+                col_meta = self.collection.metadata or {}
+                stored_dim = col_meta.get('embedding_dimension')
+                if stored_dim and len(query_embedding) != stored_dim:
+                    logger.error(
+                        f"Embedding dimension mismatch (stored={stored_dim}, query={len(query_embedding)}). "
+                        "Re-run index_issues() after switching embedding model."
+                    )
+                    return []
+            except Exception:
+                pass
             
             results = self.collection.query(
                 query_embeddings=[query_embedding],

@@ -697,3 +697,20 @@ async def invalidate_issue_cache(issue_id: int, rag_service: RAGService = Depend
     except Exception as e:
         logger.error(f"Failed to invalidate cache for issue {issue_id}: {e}")
         return {"error": str(e)}
+
+
+@web_router.post("/api/web/rag/reindex")
+async def reindex_rag(rag_service: RAGService = Depends(get_rag_service), redmine_client: RedmineClient = Depends(get_redmine_client)):
+    """(管理) 全Issueを再取得しRAGベクトルインデックスを再構築。Embeddingモデル切替後などに利用。"""
+    try:
+        if not rag_service or not redmine_client:
+            raise HTTPException(status_code=503, detail="Services not initialized")
+
+        issues = redmine_client.get_all_issues_with_journals()
+        chunk_count = rag_service.index_issues(issues)
+        return {"success": True, "issues_indexed": len(issues), "chunks_indexed": chunk_count}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to reindex RAG: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to reindex: {e}")
