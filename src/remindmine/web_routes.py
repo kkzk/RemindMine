@@ -57,6 +57,15 @@ class AutoAdviceSettingsRequest(BaseModel):
     enabled: bool
 
 
+class AIProviderSettingsRequest(BaseModel):
+    """Request model for AI provider settings."""
+    ai_provider: str
+    ollama_model: Optional[str] = None
+    ollama_embedding_model: Optional[str] = None
+    openai_model: Optional[str] = None
+    openai_embedding_model: Optional[str] = None
+
+
 @web_router.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request):
     """Serve the main dashboard page."""
@@ -525,6 +534,119 @@ async def get_cache_stats(rag_service: RAGService = Depends(get_rag_service)):
     except Exception as e:
         logger.error(f"Failed to get cache stats: {e}")
         return {"error": str(e)}
+
+
+@web_router.get("/api/web/ai-provider/config")
+async def get_ai_provider_config():
+    """Get current AI provider configuration."""
+    try:
+        from .config import config
+        
+        # 利用可能なモデル一覧
+        available_models = {
+            "ollama": [
+                "llama3.2:1b", "llama3.2:3b", "llama3.2", "llama3.1", 
+                "codellama", "mistral", "qwen2.5", "phi3"
+            ],
+            "openai": [
+                "gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"
+            ]
+        }
+        
+        available_embedding_models = {
+            "ollama": [
+                "llama3.2", "mxbai-embed-large", "nomic-embed-text", "all-minilm"
+            ],
+            "openai": [
+                "text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"
+            ]
+        }
+        
+        return {
+            "current_provider": config.ai_provider,
+            "current_config": {
+                "ollama_model": config.ollama_model,
+                "ollama_embedding_model": config.ollama_embedding_model,
+                "openai_model": config.openai_model,
+                "openai_embedding_model": config.openai_embedding_model,
+            },
+            "available_models": available_models,
+            "available_embedding_models": available_embedding_models,
+            "has_openai_key": bool(config.openai_api_key),
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get AI provider config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.post("/api/web/ai-provider/config")
+async def update_ai_provider_config(request: AIProviderSettingsRequest):
+    """Update AI provider configuration."""
+    try:
+        # Web configの更新
+        if request.ai_provider:
+            web_config.ai_provider = request.ai_provider
+        if request.ollama_model:
+            web_config.ollama_model = request.ollama_model
+        if request.ollama_embedding_model:
+            web_config.ollama_embedding_model = request.ollama_embedding_model
+        if request.openai_model:
+            web_config.openai_model = request.openai_model
+        if request.openai_embedding_model:
+            web_config.openai_embedding_model = request.openai_embedding_model
+        
+        # 設定をファイルに保存（今後の起動時に反映されるよう）
+        # 注意: 実際の設定反映にはサーバー再起動が必要
+        return {
+            "success": True, 
+            "message": f"AIプロバイダを {request.ai_provider} に更新しました。変更を完全に反映するには再起動が必要です。",
+            "restart_required": True
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to update AI provider config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.get("/api/web/ai-provider/test")
+async def test_ai_provider(provider: Optional[str] = None):
+    """Test AI provider connection."""
+    try:
+        from .config import config
+        from .ai_providers import create_ai_provider
+        
+        test_provider = provider or config.ai_provider
+        
+        # プロバイダのテスト
+        ai_provider = create_ai_provider(test_provider, config)
+        
+        # 簡単なテストクエリ
+        test_query = "テスト"
+        embedding = ai_provider.embed_query(test_query)
+        
+        if embedding and len(embedding) > 0:
+            completion = ai_provider.generate_completion("こんにちはと挨拶してください。")
+            return {
+                "success": True,
+                "provider": test_provider,
+                "embedding_dimension": len(embedding),
+                "test_completion": completion[:100] + "..." if completion and len(completion) > 100 else completion
+            }
+        else:
+            return {
+                "success": False,
+                "provider": test_provider,
+                "error": "エンベディング生成に失敗しました"
+            }
+            
+    except Exception as e:
+        logger.error(f"Failed to test AI provider: {e}")
+        return {
+            "success": False,
+            "provider": provider or "unknown",
+            "error": str(e)
+        }
 
 
 @web_router.post("/api/web/cache/clear")

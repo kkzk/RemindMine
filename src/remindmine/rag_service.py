@@ -3,10 +3,10 @@
 主な役割:
 1. Redmine 課題データを ChromaDB にベクトル化格納 (Issue -> 複数チャンク)
 2. 新規/対象課題の説明文から類似課題チャンクを検索
-3. 類似課題の文脈を元に LLM (Ollama) へプロンプトを組み立てアドバイスを生成
+3. 類似課題の文脈を元に LLM へプロンプトを組み立てアドバイスを生成
 
 設計メモ:
-- Embedding: 現状 Ollama の /api/embeddings を直接 POST する簡易実装
+- AI Provider: プロバイダパターンで Ollama/OpenAI を切り替え可能
 - Vector Store: ChromaDB (PersistentClient) を利用し cosine 類似度 (hnsw:space=cosine)
 - 分割: LangChain RecursiveCharacterTextSplitter で長文をチャンク (1000 文字 / 200 文字オーバーラップ)
 - 冪等性: index_issues 呼び出し時はコレクションを一度削除⇒再生成で全件再構築
@@ -20,99 +20,94 @@ import chromadb
 from chromadb.config import Settings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
-import requests
-import json
 import os
 from .config import config
+from .ai_providers import create_ai_provider, AIProvider
 
 logger = logging.getLogger(__name__)
 
 
+# 後方互換性のため OllamaEmbeddings クラスを残す（deprecated）
 class OllamaEmbeddings:
     """Ollama Embeddings 取得用の極めてシンプルなラッパークラス。
-
-    注意:
-    - 失敗時は 0 ベクトル (長さ 384 を仮定) を返して後段処理を継続させる。
-    - モデルやベクトル次元は利用モデルに依存 (将来パラメタ化を検討)。
+    
+    注意: このクラスは非推奨です。新しい ai_providers モジュールを使用してください。
     """
     
     def __init__(self, base_url: str = "http://localhost:11434", model: str = "llama3.2"):
-        self.base_url = base_url
-        self.model = model
+        logger.warning("OllamaEmbeddings is deprecated. Use ai_providers module instead.")
+        from .ai_providers import OllamaProvider
+        self._provider = OllamaProvider(base_url, model, model)
     
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        """複数テキストを埋め込みベクトルへ変換。
-
-        いずれかのテキストで失敗しても他は継続し、失敗分は 0 ベクトルを挿入。
-        """
-        embeddings = []
-        for text in texts:
-            embedding = self._get_embedding(text)
-            if embedding:
-                embeddings.append(embedding)
-            else:
-                # Fallback to zeros if embedding fails
-                embeddings.append([0.0] * 384)  # Default dimension
-        return embeddings
+        """複数テキストを埋め込みベクトルへ変換。"""
+        return self._provider.embed_documents(texts)
     
     def embed_query(self, text: str) -> List[float]:
-        """検索クエリ 1 件を埋め込みベクトルへ変換。失敗時は 0 ベクトル。"""
-        embedding = self._get_embedding(text)
-        return embedding if embedding else [0.0] * 384
+        """検索クエリ 1 件を埋め込みベクトルへ変換。"""
+        return self._provider.embed_query(text)
     
     def _get_embedding(self, text: str) -> Optional[List[float]]:
-        """Ollama API へリクエストを送り埋め込みを取得。内部利用専用。"""
-        try:
-            url = f"{self.base_url}/api/embeddings"
-            data = {
-                "model": self.model,
-                "prompt": text
-            }
-            response = requests.post(url, json=data, timeout=30)
-            response.raise_for_status()
-            result = response.json()
-            return result.get("embedding")
-        except Exception as e:
-            logger.error(f"Failed to get embedding: {e}")
-            return None
+        """内部利用のため、プロバイダ経由で取得。"""
+        embedding = self._provider.embed_query(text)
+        return embedding if any(embedding) else None
 
 
 class RAGService:
     """Redmine 課題を対象にした検索 (Retrieval) + 生成 (Generation) サービス本体。"""
     
-    def __init__(self, chromadb_path: str, ollama_base_url: str, ollama_model: str):
+    def __init__(self, chromadb_path: str, provider_type: Optional[str] = None, 
+                 ollama_base_url: Optional[str] = None, ollama_model: Optional[str] = None):
         """初期化。
 
         Args:
             chromadb_path: ChromaDB 永続化ディレクトリパス
-            ollama_base_url: Ollama のベース URL (例: http://localhost:11434)
-            ollama_model: 利用する Ollama モデル名
+            provider_type: AIプロバイダタイプ ("ollama" or "openai")
+            ollama_base_url: Ollama のベース URL (後方互換性のため)
+            ollama_model: 利用する Ollama モデル名 (後方互換性のため)
         """
         self.chromadb_path = chromadb_path
-        self.ollama_base_url = ollama_base_url
-        self.ollama_model = ollama_model
         
-    # ChromaDB クライアント初期化 (永続モード)
+        # AI プロバイダを初期化
+        if provider_type is None:
+            provider_type = config.ai_provider
+        
+        try:
+            self.ai_provider = create_ai_provider(provider_type, config)
+            logger.info(f"Initialized AI provider: {provider_type}")
+        except Exception as e:
+            logger.error(f"Failed to initialize AI provider {provider_type}: {e}")
+            # フォールバックとして Ollama プロバイダを試す
+            try:
+                self.ai_provider = create_ai_provider("ollama", config)
+                logger.warning("Falling back to Ollama provider")
+            except Exception as fallback_e:
+                logger.error(f"Fallback to Ollama also failed: {fallback_e}")
+                raise RuntimeError(f"Failed to initialize any AI provider: {e}")
+        
+        # 後方互換性のため、古いパラメータも保存
+        self.ollama_base_url = ollama_base_url or config.ollama_base_url
+        self.ollama_model = ollama_model or config.ollama_model
+        
+        # ChromaDB クライアント初期化 (永続モード)
         self.chroma_client = chromadb.PersistentClient(
             path=chromadb_path,
             settings=Settings(anonymized_telemetry=False)
         )
         
-    # Embeddings ラッパー初期化
-        self.embeddings = OllamaEmbeddings(ollama_base_url, ollama_model)
-        
-    # コレクション取得 (無ければ作成)。距離空間は cosine
+        # コレクション取得 (無ければ作成)。距離空間は cosine
         self.collection = self.chroma_client.get_or_create_collection(
             name="redmine_issues",
             metadata={"hnsw:space": "cosine"}
         )
         
-    # 長文分割: 再利用コストを避けるためインスタンス保持
+        # 長文分割: 再利用コストを避けるためインスタンス保持
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200
         )
-    # プロンプトテンプレート格納ディレクトリ
+        
+        # プロンプトテンプレート格納ディレクトリ
         self.prompts_dir = os.path.join(os.path.dirname(__file__), 'prompts')
 
     def _load_prompt_template(self, filename: str) -> Optional[str]:
@@ -173,7 +168,7 @@ class RAGService:
                 ids.append(doc_id)
         
         if documents:
-            # コレクション追加 (ChromaDB 側で自動的に埋め込み生成)
+            # コレクション追加（エンベディングは後でクエリ時に行う）
             self.collection.add(
                 documents=documents,
                 metadatas=metadatas,
@@ -196,8 +191,12 @@ class RAGService:
         try:
             # 除外フィルタ後にも所望件数を確保するためオーバーフェッチ
             fetch_n = n_results * 3 if exclude_issue_id is not None else n_results
+            
+            # AIプロバイダ経由でクエリエンベディング生成
+            query_embedding = self.ai_provider.embed_query(query)
+            
             results = self.collection.query(
-                query_texts=[query],
+                query_embeddings=[query_embedding],
                 n_results=fetch_n
             )
 
@@ -234,21 +233,14 @@ class RAGService:
         # プロンプト生成
         prompt = self._create_advice_prompt(issue_description, context)
         
-        # Ollama で非ストリーミング生成
+        # AIプロバイダでアドバイス生成
         try:
-            url = f"{self.ollama_base_url}/api/generate"
-            data = {
-                "model": self.ollama_model,
-                "prompt": prompt,
-                "stream": False
-            }
+            advice = self.ai_provider.generate_completion(prompt)
             
-            response = requests.post(url, json=data, timeout=60)
-            response.raise_for_status()
-            result = response.json()
-            
-            advice = result.get("response", "申し訳ございませんが、アドバイスの生成に失敗しました。")
-            return advice.strip()
+            if advice and advice.strip():
+                return advice.strip()
+            else:
+                return "申し訳ございませんが、アドバイスの生成に失敗しました。"
             
         except Exception as e:
             logger.error(f"Failed to generate advice: {e}")

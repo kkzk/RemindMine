@@ -94,6 +94,19 @@ class RemindMineApp {
             this.clearCache();
         });
 
+        // AI Provider events
+        document.getElementById('ai-provider-select').addEventListener('change', (e) => {
+            this.handleProviderChange(e.target.value);
+        });
+
+        document.getElementById('test-ai-provider').addEventListener('click', () => {
+            this.testAIProvider();
+        });
+
+        document.getElementById('save-ai-provider').addEventListener('click', () => {
+            this.saveAIProviderSettings();
+        });
+
         // Pending advice events (removed - no longer needed)
 
         // Dashboard pending advice events (removed - no longer needed)
@@ -131,7 +144,8 @@ class RemindMineApp {
                 this.loadStatuses(),
                 this.loadUsers(),
                 this.loadSettings(),
-                this.loadCacheStats()
+                this.loadCacheStats(),
+                this.loadAIProviderConfig()
             ]);
             this.loadIssues();
         } catch (error) {
@@ -148,6 +162,7 @@ class RemindMineApp {
             // create-issue タブは削除済み
             case 'settings':
                 this.loadSystemInfo();
+                this.loadAIProviderConfig();
                 break;
         }
     }
@@ -1027,16 +1042,190 @@ class RemindMineApp {
             
             if (data.success) {
                 this.showNotification(data.message, 'success');
-                await this.loadCacheStats(); // Refresh stats
+                await this.loadCacheStats();
             } else {
-                this.showNotification(`キャッシュクリアに失敗しました: ${data.error}`, 'error');
+                this.showNotification(data.error || 'キャッシュクリアに失敗しました', 'error');
             }
         } catch (error) {
             console.error('Error clearing cache:', error);
-            this.showNotification('キャッシュクリア中にエラーが発生しました', 'error');
+            this.showNotification('キャッシュクリアに失敗しました', 'error');
+        }
+    }
+
+    async loadAIProviderConfig() {
+        try {
+            const response = await fetch('/api/web/ai-provider/config');
+            const data = await response.json();
+            
+            // プロバイダ選択状態を設定
+            document.getElementById('ai-provider-select').value = data.current_provider;
+            
+            // モデル選択肢を設定
+            this.populateModelOptions(data.available_models, data.available_embedding_models);
+            
+            // 現在の設定を反映
+            document.getElementById('ollama-model-select').value = data.current_config.ollama_model;
+            document.getElementById('ollama-embedding-model-select').value = data.current_config.ollama_embedding_model;
+            document.getElementById('openai-model-select').value = data.current_config.openai_model;
+            document.getElementById('openai-embedding-model-select').value = data.current_config.openai_embedding_model;
+            
+            // OpenAI APIキー状態を表示
+            const keyStatus = document.getElementById('openai-key-status');
+            if (data.has_openai_key) {
+                keyStatus.innerHTML = '<i class="fas fa-check-circle"></i> OpenAI APIキーが設定されています';
+                keyStatus.className = 'api-key-status success';
+            } else {
+                keyStatus.innerHTML = '<i class="fas fa-exclamation-triangle"></i> APIキーが設定されていません。環境変数OPENAI_API_KEYを設定してください。';
+                keyStatus.className = 'api-key-status warning';
+            }
+            
+            // プロバイダ設定表示を更新
+            this.handleProviderChange(data.current_provider);
+            
+        } catch (error) {
+            console.error('Error loading AI provider config:', error);
+            this.showNotification('AIプロバイダ設定の読み込みに失敗しました', 'error');
+        }
+    }
+
+    populateModelOptions(availableModels, availableEmbeddingModels) {
+        // Ollamaモデル
+        const ollamaModelSelect = document.getElementById('ollama-model-select');
+        ollamaModelSelect.innerHTML = '';
+        availableModels.ollama.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            ollamaModelSelect.appendChild(option);
+        });
+
+        // Ollama Embeddingモデル
+        const ollamaEmbeddingSelect = document.getElementById('ollama-embedding-model-select');
+        ollamaEmbeddingSelect.innerHTML = '';
+        availableEmbeddingModels.ollama.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            ollamaEmbeddingSelect.appendChild(option);
+        });
+
+        // OpenAIモデル
+        const openaiModelSelect = document.getElementById('openai-model-select');
+        openaiModelSelect.innerHTML = '';
+        availableModels.openai.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            openaiModelSelect.appendChild(option);
+        });
+
+        // OpenAI Embeddingモデル
+        const openaiEmbeddingSelect = document.getElementById('openai-embedding-model-select');
+        openaiEmbeddingSelect.innerHTML = '';
+        availableEmbeddingModels.openai.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model;
+            openaiEmbeddingSelect.appendChild(option);
+        });
+    }
+
+    handleProviderChange(provider) {
+        const ollamaSettings = document.getElementById('ollama-settings');
+        const openaiSettings = document.getElementById('openai-settings');
+        
+        if (provider === 'ollama') {
+            ollamaSettings.style.display = 'block';
+            openaiSettings.style.display = 'none';
+        } else if (provider === 'openai') {
+            ollamaSettings.style.display = 'none';
+            openaiSettings.style.display = 'block';
+        }
+    }
+
+    async testAIProvider() {
+        const provider = document.getElementById('ai-provider-select').value;
+        const testButton = document.getElementById('test-ai-provider');
+        
+        testButton.disabled = true;
+        testButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> テスト中...';
+        
+        try {
+            const response = await fetch(`/api/web/ai-provider/test?provider=${provider}`);
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showNotification(
+                    `${data.provider} プロバイダテスト成功！\n` +
+                    `エンベディング次元: ${data.embedding_dimension}\n` +
+                    `テスト応答: ${data.test_completion}`,
+                    'success'
+                );
+            } else {
+                this.showNotification(
+                    `${data.provider} プロバイダテスト失敗: ${data.error}`,
+                    'error'
+                );
+            }
+        } catch (error) {
+            console.error('Error testing AI provider:', error);
+            this.showNotification('AIプロバイダテストに失敗しました', 'error');
+        } finally {
+            testButton.disabled = false;
+            testButton.innerHTML = '<i class="fas fa-vial"></i> AIプロバイダテスト';
+        }
+    }
+
+    async saveAIProviderSettings() {
+        const saveButton = document.getElementById('save-ai-provider');
+        
+        const settings = {
+            ai_provider: document.getElementById('ai-provider-select').value,
+            ollama_model: document.getElementById('ollama-model-select').value,
+            ollama_embedding_model: document.getElementById('ollama-embedding-model-select').value,
+            openai_model: document.getElementById('openai-model-select').value,
+            openai_embedding_model: document.getElementById('openai-embedding-model-select').value,
+        };
+        
+        saveButton.disabled = true;
+        saveButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+        
+        try {
+            const response = await fetch('/api/web/ai-provider/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(settings),
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.showNotification(data.message, 'success');
+                if (data.restart_required) {
+                    // 再起動が必要な旨を強調表示
+                    setTimeout(() => {
+                        this.showNotification('設定を完全に反映するにはサーバーの再起動が必要です', 'warning');
+                    }, 3000);
+                }
+            } else {
+                this.showNotification('AIプロバイダ設定の保存に失敗しました', 'error');
+            }
+        } catch (error) {
+            console.error('Error saving AI provider settings:', error);
+            this.showNotification('AIプロバイダ設定の保存に失敗しました', 'error');
+        } finally {
+            saveButton.disabled = false;
+            saveButton.innerHTML = '<i class="fas fa-save"></i> プロバイダ設定保存';
         }
     }
 }
+
+// Initialize the app when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    new RemindMineApp();
+});
 
 // Initialize app when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
