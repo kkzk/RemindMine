@@ -8,6 +8,7 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.schema import Document
 import requests
 import json
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,17 @@ class RAGService:
             chunk_size=1000,
             chunk_overlap=200
         )
+        # prompts directory
+        self.prompts_dir = os.path.join(os.path.dirname(__file__), 'prompts')
+
+    def _load_prompt_template(self, filename: str) -> Optional[str]:
+        path = os.path.join(self.prompts_dir, filename)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Failed to load prompt template {filename}: {e}")
+            return None
     
     def index_issues(self, issues: List[Dict[str, Any]]) -> None:
         """Index issues into ChromaDB.
@@ -305,29 +317,10 @@ class RAGService:
         return "\n".join(context_parts)
     
     def _create_advice_prompt(self, issue_description: str, context: str) -> str:
-        """Create prompt for advice generation.
-        
-        Args:
-            issue_description: New issue description
-            context: Context from similar issues
-            
-        Returns:
-            Formatted prompt
-        """
-        prompt = f"""あなたはRedmineの課題解決アシスタントです。新しく登録された課題に対して、過去の類似事例を参考にして実用的なアドバイスを提供してください。
-
-新しい課題:
-{issue_description}
-
-{context}
-
-上記の過去事例を参考にして、新しい課題に対する具体的で実用的なアドバイスを日本語で提供してください。アドバイスは以下の観点から述べてください:
-
-1. 問題の分析
-2. 推奨される解決手順
-3. 注意すべき点
-4. 参考になる過去事例からの学び
-
-アドバイス:"""
-
-        return prompt
+        template = self._load_prompt_template('advice.txt')
+        if not template:
+            # Fallback to minimal prompt if template missing
+            return f"課題:\n{issue_description}\n\n{context}\n\nアドバイス:"
+        return (template
+                .replace('{{ISSUE_DESCRIPTION}}', issue_description)
+                .replace('{{CONTEXT}}', context))

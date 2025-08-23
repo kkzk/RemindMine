@@ -29,11 +29,23 @@ class SummaryService:
         self.journal_summary_prompt_limit = int(os.getenv('JOURNAL_SUMMARY_PROMPT_LIMIT', '800'))
         self.enforce_truncate = os.getenv('SUMMARY_ENFORCE_TRUNCATE', 'false').lower() in ('1', 'true', 'yes')
 
+        # Prompt templates directory (same package /prompts)
+        self.prompts_dir = os.path.join(os.path.dirname(__file__), 'prompts')
         # Initialize cache service
         if cache_file_path:
             self.cache_service = SummaryCacheService(cache_file_path)
         else:
             self.cache_service = None
+
+    def _load_template(self, name: str) -> Optional[str]:
+        """Load prompt template text by filename (without path)."""
+        try:
+            path = os.path.join(self.prompts_dir, name)
+            with open(path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Failed to load prompt template {name}: {e}")
+            return None
     
     def _chat_with_ollama(self, prompt: str) -> Optional[str]:
         """Chat with Ollama LLM.
@@ -91,14 +103,12 @@ class SummaryService:
             
             content = "\n".join(content_parts)
             
-            # Create summary prompt
-            prompt = f"""以下のIssueの内容を{prompt_limit}文字以内を目安に簡潔に要約してください。超えても構いませんが、重要点を網羅してください。
-重要なポイントと課題を含めて、分かりやすく要約してください。
-
-Issue内容:
-{content}
-
-要約:"""
+            template = self._load_template('content_summary.txt')
+            if not template:
+                return None
+            prompt = (template
+                      .replace('{{LIMIT}}', str(prompt_limit))
+                      .replace('{{CONTENT}}', content))
             
             summary = self._chat_with_ollama(prompt)
             if summary:
@@ -155,14 +165,12 @@ Issue内容:
             # Combine all journal entries
             all_journals = "\n\n".join(meaningful_journals)
             
-            # Create summary prompt
-            prompt = f"""以下のIssueのコメント履歴を{prompt_limit}文字以内を目安に要約してください。多少超過しても構いませんが重要事項を落とさないでください。
-主要な議論のポイントや進捗状況、重要な決定事項を含めて要約してください。
-
-コメント履歴:
-{all_journals}
-
-要約:"""
+            template = self._load_template('journal_summary.txt')
+            if not template:
+                return None
+            prompt = (template
+                      .replace('{{LIMIT}}', str(prompt_limit))
+                      .replace('{{JOURNALS}}', all_journals))
             
             summary = self._chat_with_ollama(prompt)
             if summary:
