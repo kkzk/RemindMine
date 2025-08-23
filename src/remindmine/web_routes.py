@@ -464,6 +464,43 @@ def _enhance_issue_data(issue: Dict[str, Any], rag_service: Optional[RAGService]
     return enhanced
 
 
+@web_router.post("/api/web/issues/{issue_id}/summaries/regenerate")
+async def regenerate_issue_summaries(issue_id: int, rag_service: RAGService = Depends(get_rag_service), redmine_client: RedmineClient = Depends(get_redmine_client)):
+    """Force invalidate and regenerate summaries for a specific issue.
+
+    Frontend からの明示操作用。キャッシュを無効化し最新内容で再計算した結果を返す。
+    """
+    try:
+        if not rag_service or not redmine_client:
+            raise HTTPException(status_code=503, detail="Services not initialized")
+
+        # Issue 詳細取得
+        issue = redmine_client.get_issue(issue_id)
+        if not issue:
+            raise HTTPException(status_code=404, detail="Issue not found")
+
+        from .config import config
+        data_dir = os.path.dirname(config.chromadb_path)
+        cache_file_path = os.path.join(data_dir, "summary_cache.json")
+
+        summary_service = SummaryService(
+            ollama_base_url=rag_service.ollama_base_url,
+            ollama_model=rag_service.ollama_model,
+            cache_file_path=cache_file_path
+        )
+
+        # キャッシュ無効化 -> 再生成
+        summary_service.invalidate_issue_cache(issue_id)
+        summary_data = summary_service.get_issue_summary_data(issue)
+
+        return {"issue_id": issue_id, "summaries": summary_data, "message": "サマリを再生成しました"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to regenerate summaries for issue {issue_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to regenerate summaries")
+
+
 @web_router.get("/api/web/cache/stats")
 async def get_cache_stats(rag_service: RAGService = Depends(get_rag_service)):
     """Get summary cache statistics."""

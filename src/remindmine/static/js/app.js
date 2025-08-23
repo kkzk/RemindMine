@@ -321,6 +321,9 @@ class RemindMineApp {
                             <i class="fas fa-eye"></i> アドバイス詳細
                         </button>
                     ` : ''}
+                    <button class="btn btn-secondary" onclick="app.regenerateSummaries('${issue.id}')">
+                        <i class="fas fa-sync"></i> サマリ再作成
+                    </button>
                     <button class="btn btn-primary" onclick="app.generateAdvice('${issue.id}')">
                         <i class="fas fa-redo"></i> アドバイス再作成
                     </button>
@@ -448,6 +451,9 @@ class RemindMineApp {
                             <i class="fas fa-eye"></i> アドバイス詳細
                         </button>
                     ` : ''}
+                    <button class="btn btn-secondary" onclick="app.regenerateSummaries('${issue.id}')">
+                        <i class="fas fa-sync"></i> サマリ再作成
+                    </button>
                     <button class="btn btn-primary" onclick="app.generateAdvice('${issue.id}')">
                         <i class="fas fa-redo"></i> アドバイス再作成
                     </button>
@@ -600,6 +606,25 @@ class RemindMineApp {
         } catch (error) {
             console.error('Failed to generate advice:', error);
             this.showNotification(`アドバイス生成に失敗しました: ${error.message}`, 'error');
+        }
+    }
+
+    async regenerateSummaries(issueId) {
+        try {
+            this.showNotification('サマリ再生成中...', 'info');
+
+            const response = await fetch(`/api/web/issues/${issueId}/summaries/regenerate`, { method: 'POST' });
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.detail || 'Failed to regenerate summaries');
+            }
+
+            this.showNotification('サマリを再生成しました', 'success');
+            // 再取得
+            this.loadIssues();
+        } catch (error) {
+            console.error('Failed to regenerate summaries:', error);
+            this.showNotification(`サマリ再生成に失敗しました: ${error.message}`, 'error');
         }
     }
 
