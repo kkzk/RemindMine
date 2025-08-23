@@ -1,5 +1,40 @@
-このプロジェクトは開発・学習用のサンプルアプリケーションです。
-GitHub Copilot によりソースコードとドキュメントを生成しています。
+このプロジェクトは開発・学習用のサンプルアプリケーション## ✨ 主な機能
+
+- **🕐 ポーリング監視**: Redmineの新規Issue作成を定期的に監視・検知
+- **🔍 RAG検索**: ChromaDB を使った過去Issue類似検索（意味的検索）
+- **🧠 AIアドバイス**: Ollama（ローカルLLM）による解決策提案### 2. 🖥️ サーバーの起動
+AIエージェントサーバーとWeb UIを開始：
+
+```bash
+# CLIコマンド
+python cli.py server
+
+# または Windows用バッチファイル（推奨）
+start.bat
+
+# または VS Code タスク
+# Ctrl+Shift+P -> "Tasks: Run Task" -> "Start RemindMine Server"
+
+# または直接FastAPI
+uvicorn src.remindmine.app:app --host 0.0.0.0 --port 8000
+```
+
+サーバーは `http://localhost:8000` で起動します。
+
+### 3. 🌐 Web UI の使用
+ブラウザで `http://localhost:8000` にアクセスして Web ダッシュボードを開きます：
+
+- **ダッシュボード**: Issue 一覧、フィルター、AIアドバイス表示・生成
+- **Issue作成**: Web UI から直接 Redmine に新規 Issue 作成
+- **設定**: 自動アドバイス機能の ON/OFF、キャッシュ管理、システム情報
+
+### 4. 🕐 ポーリング設定: Issue要約の自動キャッシュによるAI問い合わせコスト削減
+- **⏰ 自動更新**: バックグラウンドでの定期的なナレッジベース更新
+- **🌐 Web UI**: 直感的な Web ダッシュボードでの Issue 管理・AI 制御
+- **🎯 Issue作成**: Web UI からの新規 Issue 作成機能
+- **⚙️ 設定管理**: リアルタイムでの自動アドバイス機能 ON/OFF 切り替え
+- **🔧 REST API**: 手動検索・更新用のAPIエンドポイント
+- **💻 CLI対応**: コマンドラインからの操作・テスト機能ub Copilot によりソースコードとドキュメントを生成しています。
 
 ```
 Redmine REST API
@@ -31,6 +66,7 @@ RedmineとAIを連携させたインテリジェントなIssue解決支援エー
 - **� ポーリング監視**: Redmineの新規Issue作成を定期的に監視・検知
 - **🔍 RAG検索**: ChromaDBを使った過去Issue類似検索（意味的検索）
 - **🧠 AIアドバイス**: Ollama（ローカルLLM）による解決策提案
+- **📝 要約キャッシュ**: Issue要約の自動キャッシュによるAI問い合わせコスト削減
 - **⏰ 自動更新**: バックグラウンドでの定期的なナレッジベース更新
 - **🌐 REST API**: 手動検索・更新用のAPIエンドポイント
 - **💻 CLI対応**: コマンドラインからの操作・テスト機能
@@ -188,9 +224,18 @@ RemindMine AIエージェントは自動的にRedmineをポーリングして新
 - **デフォルト設定**: 5分間隔でポーリング
 - **設定変更**: 環境変数 `POLLING_INTERVAL_MINUTES` で調整可能
 - **RAG更新**: 60分間隔でナレッジベース更新（`UPDATE_INTERVAL_MINUTES`で調整）
+- **Web UI制御**: ダッシュボードの設定タブから自動アドバイス機能をリアルタイム制御
 
-### 4. ✅ 動作確認
+### 5. ✅ 動作確認
 新しいIssueを作成すると、次回ポーリング時（最大5分後）にAIアドバイスがコメントとして投稿されます。
+
+**Web UI での確認:**
+- ダッシュボードでリアルタイムに Issue とAIアドバイスを確認
+- 手動でAIアドバイスを生成・表示
+- 設定タブで自動機能を即座に制御
+
+**CLI での確認:**
+新しいIssueの検出とアドバイス投稿はターミナルログで確認できます。
 
 ## 🛠️ CLI コマンド
 
@@ -223,13 +268,27 @@ update.bat
 
 ## 🌐 API エンドポイント
 
+### REST API
 | メソッド | エンドポイント | 説明 |
 |---------|---------------|------|
-| `GET` | `/` | ヘルスチェック |
+| `GET` | `/` | ヘルスチェック（Web UIダッシュボード） |
 | `GET` | `/health` | 詳細ステータス情報 |
 | `POST` | `/api/update-rag` | 手動RAG更新 |
 | `GET` | `/api/search?query=...&limit=5` | 類似Issue検索 |
 | `GET` | `/api/stats` | データベース統計 |
+
+### Web UI API
+| メソッド | エンドポイント | 説明 |
+|---------|---------------|------|
+| `GET` | `/api/web/issues` | Issue一覧取得（ページネーション・フィルター対応） |
+| `POST` | `/api/web/issues` | 新規Issue作成 |
+| `POST` | `/api/web/issues/{id}/advice` | 手動AIアドバイス生成 |
+| `GET` | `/api/web/projects` | プロジェクト一覧 |
+| `GET` | `/api/web/trackers` | トラッカー一覧 |
+| `GET` | `/api/web/settings` | 設定取得 |
+| `POST` | `/api/web/settings/auto-advice` | 自動アドバイス設定変更 |
+| `GET` | `/api/web/cache/stats` | キャッシュ統計情報 |
+| `POST` | `/api/web/cache/clear` | キャッシュクリア |
 
 ### API使用例
 ```bash
@@ -241,6 +300,14 @@ curl -X POST "http://localhost:8000/api/update-rag"
 
 # 統計情報
 curl "http://localhost:8000/api/stats"
+
+# Web UI Issue一覧取得
+curl "http://localhost:8000/api/web/issues?page=1&limit=10"
+
+# Issue作成
+curl -X POST "http://localhost:8000/api/web/issues" \
+     -H "Content-Type: application/json" \
+     -d '{"project_id": 1, "tracker_id": 1, "subject": "テストIssue", "description": "説明"}'
 ```
 
 ## 🔄 動作フロー
@@ -290,34 +357,49 @@ RemindMine/
 ├── 📂 src/remindmine/           # メインパッケージ
 │   ├── 🐍 __init__.py          # パッケージ初期化
 │   ├── 🌐 app.py               # FastAPIアプリ（ポーリング & API）
+│   ├── 🎨 web_routes.py        # Web UI API ルート
 │   ├── ⚙️  config.py            # 設定管理
 │   ├── 🔗 redmine_client.py    # Redmine API クライアント
 │   ├── 🧠 rag_service.py       # ChromaDB + Ollama RAG
-│   └── ⏰ scheduler.py         # バックグラウンド更新
-├── 💻 cli.py                   # コマンドライン インターフェース
+│   ├── 📝 summary_service.py   # Issue要約キャッシュサービス
+│   ├── ⏰ scheduler.py         # バックグラウンド更新
+│   ├── 🎛️  web_config.py       # Web UI 設定管理
+│   ├── � pending_advice.py    # 保留中アドバイス管理
+│   └── 📂 templates/           # HTML テンプレート
+│       └── 🎨 index.html       # Web UI メイン画面
+├── �💻 cli.py                   # コマンドライン インターフェース
 ├── 🎯 main.py                  # メインエントリーポイント
 ├── 🧪 test_setup.py            # セットアップテスト
+├── 🧪 test_web_ui.py           # Web UI テスト
 ├── 📋 pyproject.toml           # プロジェクト設定
 ├── 🚀 start.bat               # Windows起動スクリプト
 ├── 🔄 update.bat              # Windows更新スクリプト
 ├── 🐳 Dockerfile              # Dockerイメージ定義
 ├── 🐳 docker-compose.yml      # Docker構成
 ├── 📂 data/                   # データディレクトリ
+│   ├── summary_cache.json     # Issue要約キャッシュ
+│   ├── pending_advice.json    # 保留中AIアドバイス
 │   └── chromadb/              # ChromaDBストレージ
 ├── ⚙️  .env.example            # 環境変数テンプレート
-└── 📖 README.md               # このファイル
+├── 📖 README.md               # このファイル
+└── 📖 WEB_UI_README.md        # Web UI 詳細ドキュメント
 ```
 
 ### 主要コンポーネント
 
 | ファイル | 役割 |
 |---------|------|
-| `app.py` | FastAPIサーバー、ポーリング監視、API提供 |
+| `app.py` | FastAPIサーバー、ポーリング監視、REST API提供 |
+| `web_routes.py` | Web UI用APIルート、HTML画面提供 |
 | `redmine_client.py` | Redmine REST API操作（Issue取得・コメント投稿） |
 | `rag_service.py` | ChromaDB検索 + Ollama AI生成 |
+| `summary_service.py` | Issue要約のキャッシュ管理・コスト削減 |
 | `scheduler.py` | バックグラウンド定期更新 |
-| `config.py` | 環境変数・設定管理 |
+| `web_config.py` | Web UI設定管理（自動アドバイス制御など） |
+| `pending_advice.py` | 保留中AIアドバイスの管理 |
+| `config.py` | 環境変数・システム設定管理 |
 | `cli.py` | コマンドライン操作・テスト |
+| `templates/index.html` | Web UI メイン画面 |
 
 ## 🐳 Docker での実行
 
@@ -354,24 +436,36 @@ docker run -d -p 8000:8000 \
 ```bash
 # ホットリロード付きで起動
 uvicorn src.remindmine.app:app --reload --host 0.0.0.0 --port 8000
+
+# VS Code タスクでデバッグモード起動
+# Ctrl+Shift+P -> "Tasks: Run Task" -> "Start RemindMine Server (Debug)"
 ```
 
 ### 各機能のテスト
 ```bash
-# 検索機能テスト
+# Web UI テスト（ブラウザでアクセス）
+http://localhost:8000
+
+# CLI 検索機能テスト
 python cli.py search "ログイン エラー"
 
-# アドバイス生成テスト
+# CLI アドバイス生成テスト
 python cli.py advice "パスワードリセットの問題"
 
-# データベース手動更新
+# CLI データベース手動更新
 python cli.py update
+
+# Web UI専用テスト
+python test_web_ui.py
 ```
 
 ### カスタマイズポイント
 - **`rag_service.py`**: プロンプトやRAGロジックの調整
-- **`config.py`**: 新しい設定項目の追加
-- **`app.py`**: ポーリング処理やAPI追加
+- **`web_routes.py`**: Web UI機能の追加・カスタマイズ
+- **`web_config.py`**: Web UI設定項目の追加
+- **`templates/index.html`**: Web UI画面デザインの変更
+- **`config.py`**: 新しいシステム設定項目の追加
+- **`app.py`**: ポーリング処理やREST API追加
 - **`.env`**: 各種パラメータの調整
 
 ## 🔍 トラブルシューティング
@@ -423,6 +517,7 @@ python cli.py update
 
 **確認ポイント:**
 - ポーリング間隔の設定: `POLLING_INTERVAL_MINUTES`（デフォルト5分）
+- Web UI設定タブで自動アドバイス機能がONになっているか確認
 - Redmine APIアクセス権限とネットワーク接続
 - ログでポーリング動作を確認: `python main.py`
 
@@ -480,7 +575,22 @@ curl http://localhost:8000/api/stats
 # .envファイルで調整可能
 UPDATE_INTERVAL_MINUTES=30      # RAG更新頻度（短縮で最新性向上）
 POLLING_INTERVAL_MINUTES=3      # ポーリング頻度（短縮でリアルタイム性向上）
+
+# Web UI設定
+AUTO_ADVICE_ENABLED=true        # 自動アドバイス機能の初期状態
+ISSUES_PER_PAGE=20             # Web UI Issue一覧の表示件数
+MAX_ADVICE_LENGTH=1000         # AIアドバイスの最大文字数
 ```
+
+#### 要約キャッシュ機能
+RemindMineは自動的にIssueの要約をキャッシュし、AI問い合わせコストを削減します：
+
+- **自動キャッシュ**: Issue内容・コメントの要約を初回生成時に保存
+- **変更検知**: Issueが更新された場合のみ要約を再生成
+- **コスト削減**: 毎回AI問い合わせすることなく高速表示
+- **Web UI管理**: 設定タブからキャッシュの統計確認・クリアが可能
+
+キャッシュファイルは `data/summary_cache.json` に保存されます。
 
 #### システムリソース
 - **最小構成**: 4GB RAM, 2GB ディスク
@@ -494,9 +604,10 @@ POLLING_INTERVAL_MINUTES=3      # ポーリング頻度（短縮でリアルタ�
 2. **カテゴリ別検索**: プロジェクト・トラッカー別の検索精度向上
 3. **学習機能**: フィードバックによるアドバイス品質向上
 4. **通知機能**: Slack・Teams・メール通知
-5. **ダッシュボード**: Web UIでの統計・管理画面
-6. **API拡張**: GraphQL API、認証機能
+5. **高度なWeb UI**: チャート・グラフ、Issue統計ダッシュボード
+6. **API拡張**: GraphQL API、認証機能、ユーザー権限管理
 7. **プラグイン**: Redmineプラグインとしての統合
+8. **モバイルアプリ**: スマートフォン専用アプリケーション
 
 ### 他システム連携
 - **Jira**: Jiraポーリング対応
@@ -505,6 +616,11 @@ POLLING_INTERVAL_MINUTES=3      # ポーリング頻度（短縮でリアルタ�
 - **Microsoft Teams**: Teamsアプリ統合
 
 ## 📞 サポート・貢献
+
+### ドキュメント
+- **[Web UI 詳細ガイド](WEB_UI_README.md)**: Web ダッシュボードの使い方・設定方法
+- **[ポーリング詳細](CHANGELOG_POLLING.md)**: ポーリング機能の変更履歴・仕様
+- **[重複防止機能](DUPLICATION_PREVENTION.md)**: アドバイス重複投稿の防止機能
 
 ### コミュニティ
 - **Issues**: バグ報告・機能要望

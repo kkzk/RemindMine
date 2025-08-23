@@ -4,23 +4,47 @@
 		{
 			"label": "Start RemindMine Server",
 			"type": "shell",
-			"command": "uv run python main.py",
-			"args": [],
+			"command": "uv",
+			"args": [
+				"run",
+				"uvicorn",
+				"src.remindmine.app:app",
+				"--host", "0.0.0.0",
+				"--port", "8000",
+				"--reload",
+				"--reload-include=*.py",
+				"--reload-include=*.html"
+			],
 			"isBackground": false,
 			"problemMatcher": [],
-			"group": "build"
+			"group": "build",
+			"options": {
+				"env": {
+					"PYTHONPATH": "src"
+				}
+			}
 		},
 		{
 			"label": "Start RemindMine Server (Debug)",
 			"type": "shell",
-			"command": "uv run python main.py",
-			"args": [],
+			"command": "uv",
+			"args": [
+				"run",
+				"uvicorn",
+				"src.remindmine.app:app",
+				"--host", "0.0.0.0",
+				"--port", "8000",
+				"--reload",
+				"--reload-include=*.py",
+				"--reload-include=*.html"
+			],
 			"isBackground": true,
 			"problemMatcher": [],
 			"group": "build",
 			"options": {
 				"env": {
-					"DEBUG": "1"
+					"DEBUG": "1",
+					"PYTHONPATH": "src"
 				}
 			}
 		}

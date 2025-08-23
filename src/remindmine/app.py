@@ -3,14 +3,17 @@
 import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from .config import config
 from .redmine_client import RedmineClient
 from .rag_service import RAGService
 from .scheduler import UpdateScheduler
+from .web_routes import web_router
 
 # Configure logging
 logging.basicConfig(
@@ -19,24 +22,18 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="RemindMine AI Agent",
-    description="AI Agent for Redmine issue analysis and advice with polling-based new issue detection",
-    version="1.0.0"
-)
-
 # Global services
 redmine_client = None
 rag_service = None
 scheduler = None
 
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup."""
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage application lifespan - startup and shutdown."""
     global redmine_client, rag_service, scheduler
     
+    # Startup
     logger.info("Starting RemindMine AI Agent...")
     
     # Initialize Redmine client
@@ -58,20 +55,50 @@ async def startup_event():
     )
     scheduler.start()
     
-    logger.info("RemindMine AI Agent started successfully")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown."""
-    global scheduler
+    # Set up dependencies for web routes
+    from .web_routes import set_dependencies
+    set_dependencies(rag_service, redmine_client)
     
+    logger.info("RemindMine AI Agent started successfully")
+    
+    yield
+    
+    # Shutdown
     logger.info("Shutting down RemindMine AI Agent...")
     
     if scheduler:
         scheduler.stop()
     
     logger.info("RemindMine AI Agent shut down successfully")
+
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(
+    title="RemindMine AI Agent",
+    description="AI Agent for Redmine issue analysis and advice with polling-based new issue detection",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Mount static files
+app.mount("/static", StaticFiles(directory="src/remindmine/static"), name="static")
+
+# Include web routes
+app.include_router(web_router)
+
+
+# Dependency to get RAG service
+def get_rag_service():
+    """Get RAG service instance."""
+    global rag_service
+    return rag_service
+
+
+# Dependency to get Redmine client
+def get_redmine_client():
+    """Get Redmine client instance."""
+    global redmine_client
+    return redmine_client
 
 
 @app.get("/")
@@ -192,7 +219,8 @@ def main():
         "remindmine.app:app",
         host=config.api_host,
         port=config.api_port,
-        reload=debug_mode
+        reload=debug_mode,
+        reload_includes=["*.py", "*.html"]
     )
 
 

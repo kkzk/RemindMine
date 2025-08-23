@@ -211,6 +211,12 @@ class UpdateScheduler:
             
             logger.info(f"Processing new issue #{issue_id}: {issue_subject}")
             
+            # Check if auto-advice is enabled
+            from .web_config import web_config
+            if not web_config.auto_advice_enabled:
+                logger.info(f"Auto-advice is disabled, skipping issue #{issue_id}")
+                return
+            
             # Check if AI advice already exists
             if self.redmine_client.has_ai_comment(issue_id, config.ai_comment_signature):
                 logger.info(f"Issue #{issue_id} already has AI advice, skipping")
@@ -220,12 +226,10 @@ class UpdateScheduler:
             advice = self.rag_service.generate_advice_for_issue(issue)
             
             if advice:
-                # Post the advice as a comment
-                success = self.redmine_client.add_comment(issue_id, advice)
-                if success:
-                    logger.info(f"Successfully posted AI advice to issue #{issue_id}")
-                else:
-                    logger.error(f"Failed to post AI advice to issue #{issue_id}")
+                # Add to pending advice instead of posting immediately
+                from .pending_advice import pending_advice_manager
+                advice_id = pending_advice_manager.add_pending_advice(issue, advice)
+                logger.info(f"Added AI advice for issue #{issue_id} to pending list with ID {advice_id}")
             else:
                 logger.warning(f"No AI advice generated for issue #{issue_id}")
                 
