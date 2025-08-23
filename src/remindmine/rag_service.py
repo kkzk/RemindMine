@@ -16,6 +16,7 @@
 
 import logging
 from typing import List, Dict, Any, Optional
+import hashlib
 import chromadb
 from chromadb.config import Settings
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -147,13 +148,13 @@ class RAGService:
             issues: Redmine API から取得した課題辞書のリスト
         """
         logger.info(f"Indexing {len(issues)} issues...")
-        
+
         # 既存コレクションを削除 (存在しない場合は例外を握り潰す)
         try:
             self.chroma_client.delete_collection("redmine_issues")
         except Exception as e:
             logger.debug(f"Collection deletion failed (may not exist): {e}")
-        
+
         # コレクション再生成（最新の埋め込みモデル/次元情報をメタデータに保持）
         expected_dim = getattr(self.ai_provider, 'default_dimension', None)
         embedding_model = getattr(self.ai_provider, 'embedding_model', 'unknown')
@@ -165,11 +166,21 @@ class RAGService:
                 "embedding_dimension": expected_dim
             }
         )
-        
-        documents = []
-        metadatas = []
-        ids = []
-        
+
+        documents: List[str] = []
+        metadatas: List[Dict[str, Any]] = []
+        ids: List[str] = []
+
+        # 埋め込み再計算判定のためのメタ情報方針:
+        # - source_type: データ種別 (将来 Issue 以外も扱う想定)
+        # - source_id: 元データ ID
+        # - source_updated_on: 元データの更新日時 (Redmine の updated_on など)
+        # - chunk_index: チャンク番号
+        # - chunk_hash: チャンクテキストの SHA256(先頭16桁)
+        # - chunk_char_length: 文字数 (統計/閾値調整用)
+        # - embedding_model_at_index: 生成時埋め込みモデル
+        embedding_model_at_index = getattr(self.ai_provider, 'embedding_model', 'unknown')
+
         for issue in issues:
             # 課題データから全文 (検索対象テキスト) を組み立て
             content = self._create_issue_content(issue)
@@ -177,8 +188,13 @@ class RAGService:
             # 長文はチャンク分割
             chunks = self.text_splitter.split_text(content)
 
+            issue_updated_on = issue.get('updated_on') or issue.get('updated_at') or ''
+
             for i, chunk in enumerate(chunks):
                 doc_id = f"issue_{issue['id']}_chunk_{i}"
+                # chunk ハッシュ (そのままの文字列で SHA256 → 16文字短縮)
+                chunk_hash = hashlib.sha256(chunk.encode('utf-8')).hexdigest()[:16]
+
                 documents.append(chunk)
                 metadatas.append({
                     "issue_id": issue['id'],
@@ -186,13 +202,18 @@ class RAGService:
                     "status": issue.get('status', {}).get('name', ''),
                     "priority": issue.get('priority', {}).get('name', ''),
                     "tracker": issue.get('tracker', {}).get('name', ''),
-                    "chunk_index": i
+                    "chunk_index": i,
+                    # 新規メタ情報
+                    "source_type": "issue",
+                    "source_id": issue['id'],
+                    "source_updated_on": issue_updated_on,
+                    "chunk_hash": chunk_hash,
+                    "chunk_char_length": len(chunk),
+                    "embedding_model_at_index": embedding_model_at_index,
                 })
                 ids.append(doc_id)
 
         if documents:
-            # 埋め込みを事前生成して格納（クエリ時との次元不一致を防ぐ）
-            # 大量データの場合はバッチ化 (簡易実装: 一括 / 必要なら後で最適化)
             try:
                 embeddings = self.ai_provider.embed_documents(documents)
             except Exception as e:
@@ -203,11 +224,10 @@ class RAGService:
                 logger.error("Embedding count mismatch; aborting index.")
                 return 0
 
-            # Chroma の型定義差異を回避するため list(list(...)) で正規化
             normalized_embeddings = [list(vec) for vec in embeddings]
             self.collection.add(  # type: ignore[arg-type]
                 documents=documents,
-                metadatas=metadatas,
+                metadatas=metadatas,  # type: ignore[arg-type]
                 ids=ids,
                 embeddings=normalized_embeddings  # type: ignore[arg-type]
             )
