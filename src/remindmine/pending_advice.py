@@ -33,7 +33,7 @@ class PendingAdvice:
         timestamp = datetime.now(timezone.utc).isoformat()
         
         return cls(
-            id=f"{issue_id}_{timestamp.replace(':', '-').replace('.', '-')}",
+            id=str(issue_id),  # Use issue_id as the unique identifier
             issue_id=issue_id,
             issue_subject=issue.get('subject', 'No subject'),
             issue_description=issue.get('description', 'No description'),
@@ -76,6 +76,11 @@ class PendingAdviceManager:
         """
         try:
             pending = PendingAdvice.from_issue_and_advice(issue, advice)
+            
+            # Check if there's already pending advice for this issue
+            if pending.id in self._pending_advice:
+                logger.info(f"Replacing existing pending advice for issue #{pending.issue_id}")
+            
             self._pending_advice[pending.id] = pending
             self._save_to_storage()
             
@@ -100,6 +105,17 @@ class PendingAdviceManager:
             PendingAdvice object or None if not found
         """
         return self._pending_advice.get(advice_id)
+    
+    def get_pending_by_issue_id(self, issue_id: int) -> Optional[PendingAdvice]:
+        """Get pending advice by issue ID.
+        
+        Args:
+            issue_id: ID of the issue
+            
+        Returns:
+            PendingAdvice object or None if not found
+        """
+        return self._pending_advice.get(str(issue_id))
     
     def approve_advice(self, advice_id: str) -> Optional[PendingAdvice]:
         """Approve and remove pending advice.

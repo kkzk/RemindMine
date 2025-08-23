@@ -12,6 +12,7 @@ from .redmine_client import RedmineClient
 from .rag_service import RAGService
 from .summary_service import SummaryService
 from .web_config import web_config
+from .pending_advice import pending_advice_manager
 
 logger = logging.getLogger(__name__)
 
@@ -191,13 +192,13 @@ async def generate_issue_advice(
         advice = rag_service.generate_advice_for_issue(issue)
         
         if advice:
-            # Post advice as comment to Redmine
-            comment_text = f"🤖 AI自動アドバイス\n\n{advice}"
-            redmine_client.add_comment(issue_id, comment_text)
+            # Add to pending advice instead of posting directly
+            advice_id = pending_advice_manager.add_pending_advice(issue, advice)
             
             return {
                 "advice": advice,
-                "message": "Advice generated and posted successfully"
+                "advice_id": advice_id,
+                "message": "Advice generated and added to pending list"
             }
         else:
             return {
