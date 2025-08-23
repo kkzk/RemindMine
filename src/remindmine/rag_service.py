@@ -13,6 +13,7 @@
 - 取得戦略: 除外 issue を考慮するために必要件数 * 3 を一旦取得してフィルタリング
 """
 
+
 import logging
 from typing import List, Dict, Any, Optional
 import chromadb
@@ -22,6 +23,7 @@ from langchain.schema import Document
 import requests
 import json
 import os
+from .config import config
 
 logger = logging.getLogger(__name__)
 
@@ -329,4 +331,5 @@ class RAGService:
             return f"課題:\n{issue_description}\n\n{context}\n\nアドバイス:"
         return (template
                 .replace('{{ISSUE_DESCRIPTION}}', issue_description)
-                .replace('{{CONTEXT}}', context))
+                .replace('{{CONTEXT}}', context)
+                .replace('{{REDMINE_URL}}', config.redmine_url))

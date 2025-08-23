@@ -110,7 +110,7 @@ class SummaryService:
 
             combined = "\n\n".join(parts)
 
-            template = self._load_template('unified_issue_summary.txt')
+            template = self._load_template('summary.txt')
             if not template:
                 return None
             prompt = template.replace('{{ISSUE_AND_JOURNALS}}', combined)
