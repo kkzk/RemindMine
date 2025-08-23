@@ -155,37 +155,46 @@ class RAGService:
             
         logger.info(f"Indexed {len(documents)} document chunks")
     
-    def search_similar_issues(self, query: str, n_results: int = 5) -> List[Dict[str, Any]]:
+    def search_similar_issues(self, query: str, n_results: int = 5, exclude_issue_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """Search for similar issues.
-        
+
         Args:
             query: Search query
-            n_results: Number of results to return
-            
+            n_results: Number of results to return (after filtering)
+            exclude_issue_id: (Optional) Issue ID to exclude (e.g. the issue itself)
+
         Returns:
             List of similar issue chunks with metadata
         """
         try:
-            # Search in ChromaDB using text query
+            # To allow filtering while still returning desired count, over-fetch.
+            fetch_n = n_results * 3 if exclude_issue_id is not None else n_results
             results = self.collection.query(
                 query_texts=[query],
-                n_results=n_results
+                n_results=fetch_n
             )
-            
-            similar_issues = []
-            if results['documents'] and results['documents'][0]:
-                for i, doc in enumerate(results['documents'][0]):
-                    metadata = results['metadatas'][0][i] if results['metadatas'] else {}
-                    distance = results['distances'][0][i] if results['distances'] else 1.0
-                    
+
+            similar_issues: List[Dict[str, Any]] = []
+            documents_list = results.get('documents') or []
+            metadatas_list = results.get('metadatas') or []
+            distances_list = results.get('distances') or []
+
+            if documents_list and documents_list[0]:
+                for i, doc in enumerate(documents_list[0]):
+                    metadata = metadatas_list[0][i] if metadatas_list and metadatas_list[0] and i < len(metadatas_list[0]) else {}
+                    # Skip if this chunk belongs to the excluded issue id
+                    if exclude_issue_id is not None and metadata.get('issue_id') == exclude_issue_id:
+                        continue
+                    distance = distances_list[0][i] if distances_list and distances_list[0] and i < len(distances_list[0]) else 1.0
                     similar_issues.append({
                         'content': doc,
                         'metadata': metadata,
                         'similarity': 1 - distance  # Convert distance to similarity
                     })
-            
-            return similar_issues
-            
+
+            # Trim to requested size
+            return similar_issues[:n_results]
+
         except Exception as e:
             logger.error(f"Failed to search similar issues: {e}")
             return []
@@ -240,7 +249,7 @@ class RAGService:
             issue_description = self._create_issue_content(issue)
             
             # Search for similar issues
-            similar_issues = self.search_similar_issues(issue_description, n_results=5)
+            similar_issues = self.search_similar_issues(issue_description, n_results=5, exclude_issue_id=issue.get('id'))
             
             # Generate advice
             advice = self.generate_advice(issue_description, similar_issues)
