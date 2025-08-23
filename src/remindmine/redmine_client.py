@@ -10,13 +10,14 @@ logger = logging.getLogger(__name__)
 
 class RedmineClient:
     """Redmine API client."""
-    
-    def __init__(self, base_url: str, api_key: str):
+
+    def __init__(self, base_url: str, api_key: str, disable_proxy: bool = False):
         """Initialize Redmine client.
-        
+
         Args:
             base_url: Redmine base URL
             api_key: Redmine API key
+            disable_proxy: If True, ignore system / environment proxies
         """
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
@@ -25,6 +26,14 @@ class RedmineClient:
             'X-Redmine-API-Key': api_key,
             'Content-Type': 'application/json'
         })
+
+        if disable_proxy:
+            # Clear proxy-related environment variables for this session only
+            # requests allows per-session proxies dict; set empty dict to bypass.
+            self.session.proxies = {}
+            # Additionally disable trust of environment (prevents picking up *_proxy)
+            self.session.trust_env = False
+            logger.info("RedmineClient: Proxy disabled for session")
     
     def get_issues(self, 
                    project_id: Optional[int] = None,

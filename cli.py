@@ -27,7 +27,11 @@ def run_update():
     
     try:
         # Initialize clients
-        redmine_client = RedmineClient(config.redmine_url, config.redmine_api_key)
+        redmine_client = RedmineClient(
+            config.redmine_url,
+            config.redmine_api_key,
+            disable_proxy=config.disable_proxy
+        )
         rag_service = RAGService(
             config.chromadb_path,
             config.ai_provider

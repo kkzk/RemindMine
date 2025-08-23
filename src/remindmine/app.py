@@ -37,7 +37,11 @@ async def lifespan(app: FastAPI):
     logger.info("Starting RemindMine AI Agent...")
     
     # Initialize Redmine client
-    redmine_client = RedmineClient(config.redmine_url, config.redmine_api_key)
+    redmine_client = RedmineClient(
+        config.redmine_url,
+        config.redmine_api_key,
+        disable_proxy=config.disable_proxy
+    )
     
     # Initialize RAG service with AI provider support
     rag_service = RAGService(

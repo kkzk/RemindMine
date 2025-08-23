@@ -48,6 +48,9 @@ class Config(BaseModel):
     # Legacy webhook settings (deprecated)
     webhook_secret: Optional[str] = os.getenv("WEBHOOK_SECRET")
 
+    # Network / Proxy settings
+    disable_proxy: bool = os.getenv("DISABLE_PROXY", "false").lower() == "true"
+
 
 # Global config instance
 config = Config()
