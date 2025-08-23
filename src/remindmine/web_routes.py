@@ -419,8 +419,9 @@ def _enhance_issue_data(issue: Dict[str, Any], rag_service: Optional[RAGService]
         "updated_on": issue.get("updated_on"),
         "redmine_url": f"{config.redmine_url}/issues/{issue.get('id')}",
         "ai_advice": None,
-        "content_summary": None,
-        "journal_summary": None,
+    # 新仕様: content_summary に本文+コメント統合サマリを格納。journal_summary は後方互換用に残すが常に None。
+    "content_summary": None,
+    "journal_summary": None,
         "has_journals": False,
         "journal_count": 0
     }

@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 class SummaryService:
-    """Service for generating summaries of issues and journals using LLM."""
+    """Service for generating a unified current-state summary of an issue (content + journals)."""
     
     def __init__(self, ollama_base_url: str, ollama_model: str, cache_file_path: Optional[str] = None):
         self.ollama_base_url = ollama_base_url
@@ -71,113 +71,59 @@ class SummaryService:
             logger.error(f"Failed to chat with Ollama: {e}")
             return None
     
-    def summarize_issue_content(self, issue: Dict[str, Any], max_length: Optional[int] = None) -> Optional[str]:
-        """
-        Summarize issue title and description.
-        
-        Args:
-            issue: Issue data from Redmine
-            max_length: (非推奨) 以前はプロンプトへ渡す目安文字数を指定。現在はテンプレート固定 (200) のため無視される。
-            
-        Returns:
-            Summarized content or None if failed
+    def summarize_issue_current_state(self, issue: Dict[str, Any]) -> Optional[str]:
+        """Issue 本文 (件名/説明) とユーザーコメント(ジャーナル) を統合し「現在の状態」を要約する。
+
+        既存の content_summary / journal_summary を統合する新仕様。
+        互換性のため呼び出し元では 'content_summary' フィールドに格納し、
+        'journal_summary' は今後 None を返す。
         """
         try:
-            subject = issue.get("subject", "")
-            description = issue.get("description", "")
-
-            # 文字数上限はテンプレート固定 (200)。引数 max_length は後方互換のため受け取るが無視。
+            subject = issue.get("subject", "").strip()
+            description = issue.get("description", "").strip()
+            journals = issue.get("journals", []) or []
             prompt_limit = self.PROMPT_LIMIT
 
-            if not subject and not description:
+            if not subject and not description and not journals:
                 return None
-            
-            # Prepare content to summarize
-            content_parts = []
+
+            parts = []
             if subject:
-                content_parts.append(f"件名: {subject}")
+                parts.append(f"[件名]\n{subject}")
             if description:
-                content_parts.append(f"説明: {description}")
-            
-            content = "\n".join(content_parts)
-            
-            template = self._load_template('content_summary.txt')
-            if not template:
-                return None
-            # テンプレート側で LIMIT=200 を直接記述しているため {{LIMIT}} 置換は不要。
-            prompt = template.replace('{{CONTENT}}', content)
-            
-            summary = self._chat_with_ollama(prompt)
-            if summary:
-                summary = summary.strip()
-                # 任意で強制トランケート
-                if self.enforce_truncate and prompt_limit and len(summary) > prompt_limit:
-                    summary = summary[:prompt_limit - 3] + '...'
-                return summary
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Failed to summarize issue content: {e}")
-            return None
-    
-    def summarize_journals(self, issue: Dict[str, Any], max_length: Optional[int] = None) -> Optional[str]:
-        """
-        Summarize issue journals/comments.
-        
-        Args:
-            issue: Issue data from Redmine with journals
-            max_length: (非推奨) 以前はプロンプトへ渡す目安文字数を指定。現在はテンプレート固定 (200) のため無視される。
-            
-        Returns:
-            Summarized journal content or None if no journals or failed
-        """
-        try:
-            journals = issue.get("journals", [])
-            prompt_limit = self.PROMPT_LIMIT  # テンプレート固定 200
-            if not journals:
-                return None
-            
-            # Filter out AI advice comments and collect meaningful journal entries
-            meaningful_journals = []
-            for journal in journals:
-                notes = journal.get("notes", "").strip()
+                parts.append(f"[説明]\n{description}")
+
+            # 有効ジャーナル（AIアドバイス除外）
+            meaningful = []
+            for j in journals:
+                notes = (j.get("notes") or "").strip()
                 if not notes:
                     continue
-                
-                # Skip AI advice comments
                 if "🤖 AI自動アドバイス" in notes:
                     continue
-                
-                # Add user and timestamp info
-                user = journal.get("user", {}).get("name", "Unknown")
-                created_on = journal.get("created_on", "")
-                
-                journal_entry = f"[{user}] {notes}"
-                meaningful_journals.append(journal_entry)
-            
-            if not meaningful_journals:
-                return None
-            
-            # Combine all journal entries
-            all_journals = "\n\n".join(meaningful_journals)
-            
-            template = self._load_template('journal_summary.txt')
+                user = j.get("user", {}).get("name", "Unknown")
+                created_on = j.get("created_on", "")
+                meaningful.append(f"[{user}] {notes}")
+
+            if meaningful:
+                parts.append("[コメント]" + "\n" + "\n".join(meaningful))
+
+            combined = "\n\n".join(parts)
+
+            template = self._load_template('unified_issue_summary.txt')
             if not template:
                 return None
-            prompt = template.replace('{{JOURNALS}}', all_journals)
-            
+            prompt = template.replace('{{ISSUE_AND_JOURNALS}}', combined)
+
             summary = self._chat_with_ollama(prompt)
             if summary:
                 summary = summary.strip()
                 if self.enforce_truncate and prompt_limit and len(summary) > prompt_limit:
                     summary = summary[:prompt_limit - 3] + '...'
                 return summary
-            
             return None
-            
         except Exception as e:
-            logger.error(f"Failed to summarize journals: {e}")
+            logger.error(f"Failed to create unified issue summary: {e}")
             return None
     
     def get_issue_summary_data(self, issue: Dict[str, Any]) -> Dict[str, Any]:
@@ -196,15 +142,20 @@ class SummaryService:
             if self.cache_service:
                 cached_summary = self.cache_service.get_cached_summary(issue)
                 if cached_summary:
-                    logger.debug(f"Using cached summary for issue {issue.get('id')}")
-                    return cached_summary
+                    # 旧フォーマット (journal_summary が存在し値あり) は再生成対象
+                    if cached_summary.get("journal_summary"):
+                        logger.debug("Legacy separate summaries detected; regenerating unified summary")
+                    else:
+                        logger.debug(f"Using cached summary for issue {issue.get('id')}")
+                        return cached_summary
             
             # Generate new summaries
             logger.debug(f"Generating new summary for issue {issue.get('id')}")
+            unified = self.summarize_issue_current_state(issue)
             summary_data = {
-                # フル要約を保存（強制トランケートは設定で制御）
-                "content_summary": self.summarize_issue_content(issue),
-                "journal_summary": self.summarize_journals(issue),
+                # 新仕様: content_summary に統合サマリを格納。journal_summary は互換のため残すが None。
+                "content_summary": unified,
+                "journal_summary": None,
                 "has_journals": bool(issue.get("journals")),
                 "journal_count": len(issue.get("journals", []))
             }

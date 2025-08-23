@@ -233,8 +233,9 @@ class RemindMineApp {
 
     renderIssueCard(issue) {
         const hasAdvice = issue.ai_advice && issue.ai_advice.trim();
-        const hasSummary = issue.content_summary && issue.content_summary.trim();
-        const hasJournalSummary = issue.journal_summary && issue.journal_summary.trim();
+    const hasSummary = issue.content_summary && issue.content_summary.trim();
+    // 統合サマリ仕様: journal_summary は使用しない
+    const hasJournalSummary = false;
     const truncatedDescription = this.truncateText(issue.description || '', 150);
         
         return `
@@ -279,7 +280,7 @@ class RemindMineApp {
                     <div class="issue-summary">
                         <div class="summary-header">
                             <i class="fas fa-file-text"></i>
-                            <strong>内容要約</strong>
+                            <strong>現状サマリ</strong>
                         </div>
                         <div class="summary-content scrollable">
                             ${this.escapeHtml(issue.content_summary)}
@@ -290,18 +291,7 @@ class RemindMineApp {
                         ${this.escapeHtml(truncatedDescription)}
                     </div>
                 ` : ''}
-
-                ${hasJournalSummary ? `
-                    <div class="journal-summary">
-                        <div class="summary-header">
-                            <i class="fas fa-comments"></i>
-                            <strong>コメント要約</strong>
-                        </div>
-                        <div class="summary-content">
-                            ${this.escapeHtml(issue.journal_summary)}
-                        </div>
-                    </div>
-                ` : ''}
+                
 
                 ${hasAdvice ? `
                     <div class="ai-advice">
@@ -337,8 +327,8 @@ class RemindMineApp {
 
     renderIssueCardWithAdvice(issue, pendingAdviceList) {
         const hasAdvice = issue.ai_advice && issue.ai_advice.trim();
-        const hasSummary = issue.content_summary && issue.content_summary.trim();
-        const hasJournalSummary = issue.journal_summary && issue.journal_summary.trim();
+    const hasSummary = issue.content_summary && issue.content_summary.trim();
+    const hasJournalSummary = false; // 統合サマリ仕様
     const truncatedDescription = this.truncateText(issue.description || '', 150);
         
         return `
@@ -383,7 +373,7 @@ class RemindMineApp {
                     <div class="issue-summary">
                         <div class="summary-header">
                             <i class="fas fa-file-text"></i>
-                            <strong>内容要約</strong>
+                            <strong>現状サマリ</strong>
                         </div>
                         <div class="summary-content scrollable">
                             ${this.escapeHtml(issue.content_summary)}
@@ -394,18 +384,7 @@ class RemindMineApp {
                         ${this.escapeHtml(truncatedDescription)}
                     </div>
                 ` : ''}
-
-                ${hasJournalSummary ? `
-                    <div class="journal-summary">
-                        <div class="summary-header">
-                            <i class="fas fa-comments"></i>
-                            <strong>コメント要約</strong>
-                        </div>
-                        <div class="summary-content">
-                            ${this.escapeHtml(issue.journal_summary)}
-                        </div>
-                    </div>
-                ` : ''}
+                
 
                 ${hasAdvice ? `
                     <div class="ai-advice">
