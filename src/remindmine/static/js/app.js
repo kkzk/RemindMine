@@ -70,11 +70,7 @@ class RemindMineApp {
             }
         });
 
-        // Issue creation form
-        document.getElementById('create-issue-form').addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.createIssue();
-        });
+    // Issue作成機能は廃止されたためイベントリスナー削除
 
         // Settings events
         document.getElementById('auto-advice-toggle').addEventListener('change', (e) => {
@@ -149,9 +145,7 @@ class RemindMineApp {
             case 'dashboard':
                 this.loadIssues();
                 break;
-            case 'create-issue':
-                // Refresh form data if needed
-                break;
+            // create-issue タブは削除済み
             case 'settings':
                 this.loadSystemInfo();
                 break;
@@ -483,7 +477,6 @@ class RemindMineApp {
             
             const projects = await response.json();
             this.populateSelect('project-filter', projects, 'id', 'name', '全プロジェクト');
-            this.populateSelect('issue-project', projects, 'id', 'name');
         } catch (error) {
             console.error('Failed to load projects:', error);
         }
@@ -495,7 +488,7 @@ class RemindMineApp {
             if (!response.ok) throw new Error('Failed to fetch trackers');
             
             const trackers = await response.json();
-            this.populateSelect('issue-tracker', trackers, 'id', 'name');
+            // issue-tracker セレクトは廃止
         } catch (error) {
             console.error('Failed to load trackers:', error);
         }
@@ -508,7 +501,6 @@ class RemindMineApp {
             
             const priorities = await response.json();
             this.populateSelect('priority-filter', priorities, 'id', 'name', '全優先度');
-            this.populateSelect('issue-priority', priorities, 'id', 'name');
         } catch (error) {
             console.error('Failed to load priorities:', error);
         }
@@ -532,7 +524,7 @@ class RemindMineApp {
             if (!response.ok) throw new Error('Failed to fetch users');
             
             const users = await response.json();
-            this.populateSelect('issue-assignee', users, 'id', 'name', '未割り当て');
+            // issue-assignee セレクトは廃止
         } catch (error) {
             console.error('Failed to load users:', error);
         }
@@ -587,46 +579,7 @@ class RemindMineApp {
         });
     }
 
-    async createIssue() {
-        try {
-            const formData = new FormData(document.getElementById('create-issue-form'));
-            const issueData = Object.fromEntries(formData.entries());
-
-            // Remove empty fields
-            Object.keys(issueData).forEach(key => {
-                if (!issueData[key]) {
-                    delete issueData[key];
-                }
-            });
-
-            const response = await fetch('/api/web/issues', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(issueData)
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Failed to create issue');
-            }
-
-            this.showNotification('Issueが正常に作成されました', 'success');
-            
-            // Reset form
-            document.getElementById('create-issue-form').reset();
-            
-            // Refresh issues if on dashboard
-            if (document.getElementById('dashboard').classList.contains('active')) {
-                this.loadIssues();
-            }
-
-        } catch (error) {
-            console.error('Failed to create issue:', error);
-            this.showNotification(`Issue作成に失敗しました: ${error.message}`, 'error');
-        }
-    }
+    // createIssue 機能は削除されました
 
     async generateAdvice(issueId) {
         try {

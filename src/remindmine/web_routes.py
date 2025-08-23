@@ -44,14 +44,7 @@ def set_dependencies(rag_service: RAGService, redmine_client: RedmineClient):
     _redmine_client = redmine_client
 
 
-class IssueCreateRequest(BaseModel):
-    """Request model for issue creation."""
-    project_id: int
-    tracker_id: int
-    subject: str
-    description: Optional[str] = None
-    priority_id: Optional[int] = None
-    assigned_to_id: Optional[int] = None
+# IssueCreateRequest は Issue 作成機能廃止に伴い削除
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -142,34 +135,7 @@ async def get_issues(
         raise HTTPException(status_code=500, detail="Failed to fetch issues")
 
 
-@web_router.post("/api/web/issues")
-async def create_issue(
-    issue_data: IssueCreateRequest,
-    redmine_client: RedmineClient = Depends(get_redmine_client)
-):
-    """Create a new issue in Redmine."""
-    try:
-        if not redmine_client:
-            raise HTTPException(status_code=503, detail="Redmine client not initialized")
-        
-        # Create issue in Redmine
-        issue_id = redmine_client.create_issue(
-            project_id=issue_data.project_id,
-            tracker_id=issue_data.tracker_id,
-            subject=issue_data.subject,
-            description=issue_data.description,
-            priority_id=issue_data.priority_id,
-            assigned_to_id=issue_data.assigned_to_id
-        )
-        
-        return {
-            "id": issue_id,
-            "message": "Issue created successfully"
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to create issue: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create issue: {str(e)}")
+# POST /api/web/issues は廃止
 
 
 @web_router.post("/api/web/issues/{issue_id}/advice")

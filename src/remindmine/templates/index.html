@@ -15,9 +15,6 @@
                 <button class="nav-btn active" data-tab="dashboard">
                     <i class="fas fa-tachometer-alt"></i> ダッシュボード
                 </button>
-                <button class="nav-btn" data-tab="create-issue">
-                    <i class="fas fa-plus"></i> Issue作成
-                </button>
                 <button class="nav-btn" data-tab="settings">
                     <i class="fas fa-cog"></i> 設定
                 </button>
@@ -69,66 +66,7 @@
                 </div>
             </div>
 
-            <!-- Issue作成タブ -->
-            <div id="create-issue" class="tab-content">
-                <div class="section">
-                    <h2><i class="fas fa-plus"></i> 新しいIssue作成</h2>
-                    
-                    <form id="create-issue-form" class="issue-form">
-                        <div class="form-group">
-                            <label for="issue-project">プロジェクト *</label>
-                            <select id="issue-project" name="project_id" required>
-                                <!-- Options will be loaded dynamically -->
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="issue-tracker">トラッカー *</label>
-                            <select id="issue-tracker" name="tracker_id" required>
-                                <!-- Options will be loaded dynamically -->
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label for="issue-subject">件名 *</label>
-                            <input type="text" id="issue-subject" name="subject" required 
-                                   placeholder="Issueの件名を入力してください">
-                        </div>
-
-                        <div class="form-group">
-                            <label for="issue-description">説明</label>
-                            <textarea id="issue-description" name="description" rows="6"
-                                      placeholder="Issueの詳細説明を入力してください"></textarea>
-                        </div>
-
-                        <div class="form-row">
-                            <div class="form-group">
-                                <label for="issue-priority">優先度</label>
-                                <select id="issue-priority" name="priority_id">
-                                    <!-- Options will be loaded dynamically -->
-                                </select>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="issue-assignee">担当者</label>
-                                <select id="issue-assignee" name="assigned_to_id">
-                                    <option value="">未割り当て</option>
-                                    <!-- Options will be loaded dynamically -->
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">
-                                <i class="fas fa-save"></i> Issue作成
-                            </button>
-                            <button type="reset" class="btn btn-secondary">
-                                <i class="fas fa-times"></i> クリア
-                            </button>
-                        </div>
-                    </form>
-                </div>
-            </div>
+            <!-- Issue作成機能は廃止されました -->
 
             <!-- 設定タブ -->
             <div id="settings" class="tab-content">

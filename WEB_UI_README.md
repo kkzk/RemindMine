@@ -11,12 +11,7 @@ RemindMine AI AgentのWebユーザーインターフェースが追加されま�
 - **手動アドバイス生成**: 任意のIssueに対してAIアドバイスを手動生成
 - **Redmine連携**: 直接Redmineページへのリンク
 
-### 2. Issue作成機能
-- **新規Issue登録**: WebUIからRedmineに新しいIssueを作成
-- **フォーム入力**: プロジェクト、トラッカー、件名、説明、優先度、担当者を設定
-- **入力検証**: 必須項目のバリデーション
-
-### 3. 設定画面
+### 2. 設定画面
 - **自動アドバイス制御**: AIの自動アドバイス機能をON/OFF切り替え
 - **表示設定**: 1ページあたりのIssue表示数を調整
 - **システム情報**: Redmine URL、Ollama URL、ChromaDB パスを表示
@@ -46,10 +41,7 @@ RemindMine AI AgentのWebユーザーインターフェースが追加されま�
 - **ページネーション**: 大量のIssueも快適に閲覧
 - **AIアドバイス**: 既存アドバイスの表示と新規生成
 
-### Issue作成画面
-- **プロジェクト選択**: Redmineのプロジェクト一覧から選択
-- **トラッカー選択**: バグ、機能要求、サポートなど
-- **詳細入力**: 件名、説明、優先度、担当者を設定
+<!-- Issue作成画面機能は廃止されました -->
 
 ### 設定画面
 - **自動機能制御**: AIの自動投稿機能を制御
@@ -67,11 +59,7 @@ AUTO_ADVICE_ENABLED=true
 ISSUES_PER_PAGE=20
 MAX_ADVICE_LENGTH=1000
 
-# Issue作成デフォルト値
-DEFAULT_PROJECT_ID=1
-DEFAULT_TRACKER_ID=1
-DEFAULT_PRIORITY_ID=2
-DEFAULT_STATUS_ID=1
+<!-- Issue作成デフォルト値は廃止 -->
 ```
 
 ### Web UI設定ファイル
@@ -85,8 +73,7 @@ DEFAULT_STATUS_ID=1
 - **スケジューラー連携**: 設定変更が即座にバックグラウンド処理に反映
 
 ### Issue管理
-- **完全なRedmine連携**: Web UIで作成したIssueは直接Redmineに登録
-- **既存Issueとの統合**: 既存のRedmine Issueと同様にAI処理対象
+- **既存Issue参照**: Redmine上の既存Issueを参照しAIアドバイスを表示
 - **メタデータ表示**: プロジェクト、担当者、ステータスなど詳細情報
 
 ### AIアドバイス管理
