@@ -1,7 +1,16 @@
-"""Issue and journal summary service using LLM."""
+"""Issue and journal summary service using LLM.
+
+変更点:
+ - 要約保存時の強制トランケートを廃止し、LLM出力(=フル要約)をそのままキャッシュへ保存。
+ - 環境変数でプロンプト上の目安文字数・トランケート有無を制御可能に。
+     * CONTENT_SUMMARY_PROMPT_LIMIT (既定: 500)
+     * JOURNAL_SUMMARY_PROMPT_LIMIT (既定: 800)
+     * SUMMARY_ENFORCE_TRUNCATE (true/false 既定: false) -> true の場合のみ末尾を ... で切り詰め
+"""
 
 import logging
-from typing import Dict, Any, Optional, List
+import os
+from typing import Dict, Any, Optional
 import requests
 from .summary_cache import SummaryCacheService
 
@@ -14,7 +23,12 @@ class SummaryService:
     def __init__(self, ollama_base_url: str, ollama_model: str, cache_file_path: Optional[str] = None):
         self.ollama_base_url = ollama_base_url
         self.ollama_model = ollama_model
-        
+
+        # 設定 (環境変数)
+        self.content_summary_prompt_limit = int(os.getenv('CONTENT_SUMMARY_PROMPT_LIMIT', '500'))
+        self.journal_summary_prompt_limit = int(os.getenv('JOURNAL_SUMMARY_PROMPT_LIMIT', '800'))
+        self.enforce_truncate = os.getenv('SUMMARY_ENFORCE_TRUNCATE', 'false').lower() in ('1', 'true', 'yes')
+
         # Initialize cache service
         if cache_file_path:
             self.cache_service = SummaryCacheService(cache_file_path)
@@ -48,13 +62,13 @@ class SummaryService:
             logger.error(f"Failed to chat with Ollama: {e}")
             return None
     
-    def summarize_issue_content(self, issue: Dict[str, Any], max_length: int = 150) -> Optional[str]:
+    def summarize_issue_content(self, issue: Dict[str, Any], max_length: Optional[int] = None) -> Optional[str]:
         """
         Summarize issue title and description.
         
         Args:
             issue: Issue data from Redmine
-            max_length: Maximum length of summary in characters
+            max_length: (任意) プロンプトへ渡す目安文字数。None の場合は content_summary_prompt_limit を使用。
             
         Returns:
             Summarized content or None if failed
@@ -62,6 +76,8 @@ class SummaryService:
         try:
             subject = issue.get("subject", "")
             description = issue.get("description", "")
+
+            prompt_limit = max_length if max_length is not None else self.content_summary_prompt_limit
             
             if not subject and not description:
                 return None
@@ -76,7 +92,7 @@ class SummaryService:
             content = "\n".join(content_parts)
             
             # Create summary prompt
-            prompt = f"""以下のIssueの内容を{max_length}文字以内で簡潔に要約してください。
+            prompt = f"""以下のIssueの内容を{prompt_limit}文字以内を目安に簡潔に要約してください。超えても構いませんが、重要点を網羅してください。
 重要なポイントと課題を含めて、分かりやすく要約してください。
 
 Issue内容:
@@ -86,10 +102,11 @@ Issue内容:
             
             summary = self._chat_with_ollama(prompt)
             if summary:
-                # Ensure summary doesn't exceed max_length
-                if len(summary) > max_length:
-                    summary = summary[:max_length-3] + "..."
-                return summary.strip()
+                summary = summary.strip()
+                # 任意で強制トランケート
+                if self.enforce_truncate and prompt_limit and len(summary) > prompt_limit:
+                    summary = summary[:prompt_limit - 3] + '...'
+                return summary
             
             return None
             
@@ -97,19 +114,20 @@ Issue内容:
             logger.error(f"Failed to summarize issue content: {e}")
             return None
     
-    def summarize_journals(self, issue: Dict[str, Any], max_length: int = 200) -> Optional[str]:
+    def summarize_journals(self, issue: Dict[str, Any], max_length: Optional[int] = None) -> Optional[str]:
         """
         Summarize issue journals/comments.
         
         Args:
             issue: Issue data from Redmine with journals
-            max_length: Maximum length of summary in characters
+            max_length: (任意) プロンプトへ渡す目安文字数。None の場合は journal_summary_prompt_limit を使用。
             
         Returns:
             Summarized journal content or None if no journals or failed
         """
         try:
             journals = issue.get("journals", [])
+            prompt_limit = max_length if max_length is not None else self.journal_summary_prompt_limit
             if not journals:
                 return None
             
@@ -138,7 +156,7 @@ Issue内容:
             all_journals = "\n\n".join(meaningful_journals)
             
             # Create summary prompt
-            prompt = f"""以下のIssueのコメント履歴を{max_length}文字以内で要約してください。
+            prompt = f"""以下のIssueのコメント履歴を{prompt_limit}文字以内を目安に要約してください。多少超過しても構いませんが重要事項を落とさないでください。
 主要な議論のポイントや進捗状況、重要な決定事項を含めて要約してください。
 
 コメント履歴:
@@ -148,10 +166,10 @@ Issue内容:
             
             summary = self._chat_with_ollama(prompt)
             if summary:
-                # Ensure summary doesn't exceed max_length
-                if len(summary) > max_length:
-                    summary = summary[:max_length-3] + "..."
-                return summary.strip()
+                summary = summary.strip()
+                if self.enforce_truncate and prompt_limit and len(summary) > prompt_limit:
+                    summary = summary[:prompt_limit - 3] + '...'
+                return summary
             
             return None
             
@@ -181,8 +199,9 @@ Issue内容:
             # Generate new summaries
             logger.debug(f"Generating new summary for issue {issue.get('id')}")
             summary_data = {
-                "content_summary": self.summarize_issue_content(issue, max_length=150),
-                "journal_summary": self.summarize_journals(issue, max_length=200),
+                # フル要約を保存（強制トランケートは設定で制御）
+                "content_summary": self.summarize_issue_content(issue),
+                "journal_summary": self.summarize_journals(issue),
                 "has_journals": bool(issue.get("journals")),
                 "journal_count": len(issue.get("journals", []))
             }

@@ -235,7 +235,7 @@ class RemindMineApp {
         const hasAdvice = issue.ai_advice && issue.ai_advice.trim();
         const hasSummary = issue.content_summary && issue.content_summary.trim();
         const hasJournalSummary = issue.journal_summary && issue.journal_summary.trim();
-        const truncatedDescription = this.truncateText(issue.description || '', 150);
+    const truncatedDescription = this.truncateText(issue.description || '', 150);
         
         return `
             <div class="issue-card">
@@ -281,7 +281,7 @@ class RemindMineApp {
                             <i class="fas fa-file-text"></i>
                             <strong>内容要約</strong>
                         </div>
-                        <div class="summary-content">
+                        <div class="summary-content scrollable">
                             ${this.escapeHtml(issue.content_summary)}
                         </div>
                     </div>
@@ -336,7 +336,7 @@ class RemindMineApp {
         const hasAdvice = issue.ai_advice && issue.ai_advice.trim();
         const hasSummary = issue.content_summary && issue.content_summary.trim();
         const hasJournalSummary = issue.journal_summary && issue.journal_summary.trim();
-        const truncatedDescription = this.truncateText(issue.description || '', 150);
+    const truncatedDescription = this.truncateText(issue.description || '', 150);
         
         return `
             <div class="issue-card">
@@ -382,7 +382,7 @@ class RemindMineApp {
                             <i class="fas fa-file-text"></i>
                             <strong>内容要約</strong>
                         </div>
-                        <div class="summary-content">
+                        <div class="summary-content scrollable">
                             ${this.escapeHtml(issue.content_summary)}
                         </div>
                     </div>
