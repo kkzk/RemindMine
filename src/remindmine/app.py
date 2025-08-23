@@ -219,7 +219,8 @@ def main():
         "remindmine.app:app",
         host=config.api_host,
         port=config.api_port,
-        reload=debug_mode
+        reload=debug_mode,
+        reload_includes=["*.py", "*.html"]
     )
 
 
