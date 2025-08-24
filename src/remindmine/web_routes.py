@@ -112,12 +112,32 @@ async def get_issues(
         if priority:
             filters['priority_id'] = priority
             
-        # Get issues from Redmine
+        # Get issues from Redmine with filters
+        project_id_int = None
+        if project:
+            try:
+                project_id_int = int(project)
+            except ValueError:
+                pass  # Skip invalid project ID
+        
+        status_id_str = '*'  # Default to all statuses
+        if status:
+            status_id_str = status
+            
         issues = redmine_client.get_issues(
-            status_id='*',  # All issues, let client-side handle filtering
+            project_id=project_id_int,
+            status_id=status_id_str,
             limit=limit,
             offset=offset
         )
+        
+        # Apply priority filter on client side if needed
+        if priority:
+            try:
+                priority_id = int(priority)
+                issues = [issue for issue in issues if issue.get('priority', {}).get('id') == priority_id]
+            except (ValueError, KeyError):
+                pass  # Skip invalid priority filtering
         
         # Enhance issues with AI advice
         enhanced_issues = []
