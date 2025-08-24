@@ -714,3 +714,218 @@ async def reindex_rag(rag_service: RAGService = Depends(get_rag_service), redmin
     except Exception as e:
         logger.error(f"Failed to reindex RAG: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to reindex: {e}")
+
+
+# ChromaDB管理用エンドポイント
+
+@web_router.get("/chromadb", response_class=HTMLResponse)
+async def chromadb_admin_page(request: Request):
+    """ChromaDB管理画面を表示。"""
+    try:
+        from .config import config
+        
+        return templates.TemplateResponse("chromadb_admin.html", {
+            "request": request,
+            "chromadb_path": config.chromadb_path
+        })
+    except Exception as e:
+        logger.error(f"Failed to render ChromaDB admin page: {e}")
+        raise HTTPException(status_code=500, detail="Failed to load ChromaDB admin page")
+
+
+@web_router.get("/api/web/chromadb/collections")
+async def get_chromadb_collections():
+    """ChromaDBのコレクション一覧を取得。"""
+    try:
+        from .config import config
+        from .chromadb_admin import ChromaDBAdminService
+        
+        admin_service = ChromaDBAdminService(config.chromadb_path)
+        collections = admin_service.get_collections()
+        
+        return {
+            "collections": collections,
+            "total": len(collections)
+        }
+    except Exception as e:
+        logger.error(f"Failed to get ChromaDB collections: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.get("/api/web/chromadb/collections/{collection_name}")
+async def get_chromadb_collection_documents(
+    collection_name: str,
+    limit: int = 50,
+    offset: int = 0
+):
+    """指定されたコレクションのドキュメント一覧を取得。"""
+    try:
+        from .config import config
+        from .chromadb_admin import ChromaDBAdminService
+        
+        admin_service = ChromaDBAdminService(config.chromadb_path)
+        result = admin_service.get_collection_documents(collection_name, limit, offset)
+        
+        return result
+    except Exception as e:
+        logger.error(f"Failed to get collection documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.get("/api/web/chromadb/collections/{collection_name}/documents/{document_id}")
+async def get_chromadb_document_detail(collection_name: str, document_id: str):
+    """指定されたドキュメントの詳細情報を取得。"""
+    try:
+        from .config import config
+        from .chromadb_admin import ChromaDBAdminService
+        
+        admin_service = ChromaDBAdminService(config.chromadb_path)
+        document = admin_service.get_document_detail(collection_name, document_id)
+        
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+        
+        return document
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get document detail: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.post("/api/web/chromadb/collections/{collection_name}/search")
+async def search_chromadb_documents(
+    collection_name: str,
+    query: str = Form(...),
+    n_results: int = Form(10)
+):
+    """指定されたコレクション内でドキュメントを検索。"""
+    try:
+        from .config import config
+        from .chromadb_admin import ChromaDBAdminService
+        
+        admin_service = ChromaDBAdminService(config.chromadb_path)
+        result = admin_service.search_documents(collection_name, query, n_results)
+        
+        return result
+    except Exception as e:
+        logger.error(f"Failed to search documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.get("/api/web/chromadb/collections/{collection_name}/stats")
+async def get_chromadb_collection_stats(collection_name: str):
+    """指定されたコレクションの統計情報を取得。"""
+    try:
+        from .config import config
+        from .chromadb_admin import ChromaDBAdminService
+        
+        admin_service = ChromaDBAdminService(config.chromadb_path)
+        stats = admin_service.get_collection_stats(collection_name)
+        
+        return stats
+    except Exception as e:
+        logger.error(f"Failed to get collection stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.delete("/api/web/chromadb/collections/{collection_name}/documents/{document_id}")
+async def delete_chromadb_document(collection_name: str, document_id: str):
+    """指定されたドキュメントを削除。"""
+    try:
+        from .config import config
+        from .chromadb_admin import ChromaDBAdminService
+        
+        admin_service = ChromaDBAdminService(config.chromadb_path)
+        success = admin_service.delete_document(collection_name, document_id)
+        
+        if success:
+            return {"message": f"Document {document_id} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete document")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.delete("/api/web/chromadb/collections/{collection_name}")
+async def delete_chromadb_collection(collection_name: str):
+    """指定されたコレクションを削除。"""
+    try:
+        from .config import config
+        from .chromadb_admin import ChromaDBAdminService
+        
+        admin_service = ChromaDBAdminService(config.chromadb_path)
+        success = admin_service.delete_collection(collection_name)
+        
+        if success:
+            return {"message": f"Collection {collection_name} deleted successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to delete collection")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete collection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.post("/api/web/chromadb/collections/{collection_name}/force-reindex")
+async def force_reindex_collection(
+    collection_name: str,
+    redmine_client: RedmineClient = Depends(get_redmine_client),
+    rag_service: RAGService = Depends(get_rag_service)
+):
+    """コレクションの強制再インデックス"""
+    try:
+        # 全課題を取得
+        issues = redmine_client.get_issues()
+        
+        # 強制再インデックス実行
+        chunks_added = rag_service.index_issues(issues, full_rebuild=True)
+        
+        # 再インデックス後のコレクション状態を取得
+        from .config import config
+        from .chromadb_admin import ChromaDBAdminService
+        
+        admin_service = ChromaDBAdminService(config.chromadb_path)
+        collections = admin_service.get_collections()
+        collection_info = next((c for c in collections if c["name"] == collection_name), None)
+        
+        return {
+            "status": "success",
+            "message": f"Successfully reindexed collection '{collection_name}'",
+            "chunks_added": chunks_added,
+            "total_issues": len(issues),
+            "collection_count": collection_info["count"] if collection_info else 0
+        }
+    except Exception as e:
+        logger.error(f"Failed to force reindex collection {collection_name}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@web_router.delete("/api/web/chromadb/collections/{collection_name}/clear-index")
+async def clear_index_state(collection_name: str):
+    """インデックス状態をクリアして次回の定期更新で強制再構築をトリガー"""
+    try:
+        import os
+        from .config import config
+        
+        # インデックス状態ファイルのパス
+        rag_state_path = os.path.join(os.path.dirname(config.chromadb_path), 'rag_index_state.json')
+        
+        if os.path.exists(rag_state_path):
+            os.remove(rag_state_path)
+            message = "Index state file removed. Next scheduled update will trigger full rebuild."
+        else:
+            message = "Index state file did not exist."
+        
+        return {
+            "status": "success", 
+            "message": message,
+            "note": "Full rebuild will occur on next scheduled RAG update (within 1 minute)"
+        }
+    except Exception as e:
+        logger.error(f"Failed to clear index state: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

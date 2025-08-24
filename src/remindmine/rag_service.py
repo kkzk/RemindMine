@@ -202,17 +202,23 @@ class RAGService:
         state = self._load_index_state()
         prev_model = state.get('embedding_model')
         prev_dim = state.get('embedding_dimension')
+        
+        logger.info(f"Dimension check: prev={prev_dim}, current={expected_dim}")
+        
         if prev_model != current_embedding_model:
             logger.info(f"Embedding model changed: {prev_model} -> {current_embedding_model}; forcing full rebuild")
             full_rebuild = True
         elif prev_dim and expected_dim and prev_dim != expected_dim:
             logger.info(f"Embedding dimension changed: {prev_dim} -> {expected_dim}; forcing full rebuild")
             full_rebuild = True
+        else:
+            logger.info(f"No model/dimension change detected (model: {prev_model} == {current_embedding_model}, dim: {prev_dim} == {expected_dim})")
 
         if full_rebuild:
             logger.info(f"Rebuilding index for {len(issues)} issues (full rebuild)...")
             try:
                 self.chroma_client.delete_collection("redmine_issues")
+                logger.info("Deleted existing collection for full rebuild")
             except Exception as e:
                 logger.debug(f"Collection deletion failed (may not exist): {e}")
             self.collection = self.chroma_client.get_or_create_collection(
@@ -223,8 +229,10 @@ class RAGService:
                     "embedding_dimension": expected_dim
                 }
             )
+            logger.info(f"Created new collection with {expected_dim}D embeddings")
             # 全件を変更扱いとして進めるため状態を空に
             state['issues'] = {}
+            logger.info("Cleared index state for full rebuild")
 
         issue_state: Dict[str, Any] = state.get('issues', {})
         latest_issue_ids = {str(i['id']) for i in issues}
@@ -255,6 +263,8 @@ class RAGService:
             issue_id_str = str(issue['id'])
             issue_hash = self._hash_issue(issue)
             prev = issue_state.get(issue_id_str)
+            
+            # full_rebuild の場合は、ハッシュに関係なく必ず処理する
             if prev and prev.get('hash') == issue_hash and not full_rebuild:
                 skipped_issues += 1
                 continue
