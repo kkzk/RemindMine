@@ -385,6 +385,52 @@ class RAGService:
                         'similarity': 1 - distance  # cosine 距離 -> 類似度へ変換 (暫定)
                     })
 
+            # 検索クエリと検索結果を品質向上用に保存（1検索につき1ファイル）
+            try:
+                import datetime
+                log_dir = os.path.join(os.path.dirname(self.chromadb_path), "search_logs")
+                os.makedirs(log_dir, exist_ok=True)
+                
+                # タイムスタンプ付きファイル名を生成
+                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]  # ミリ秒まで
+                log_filename = f"search_{timestamp}.txt"
+                log_path = os.path.join(log_dir, log_filename)
+                
+                with open(log_path, "w", encoding="utf-8") as f:
+                    f.write("=== 検索クエリと結果ログ ===\n\n")
+                    f.write(f"検索日時: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                    if exclude_issue_id:
+                        f.write(f"除外課題ID: {exclude_issue_id}\n")
+                    f.write("\n")
+                    
+                    f.write("【検索に使用した文字列】\n")
+                    f.write("-" * 50 + "\n")
+                    f.write(query + "\n")
+                    f.write("-" * 50 + "\n\n")
+                    
+                    if similar_issues:
+                        f.write("【類似文書と判定された結果】\n")
+                        for idx, item in enumerate(similar_issues[:n_results]):
+                            metadata = item.get("metadata", {})
+                            content = item.get("content", "")
+                            similarity = item.get("similarity", 0)
+                            
+                            f.write(f"\n■ 結果 {idx + 1}\n")
+                            f.write(f"類似度: {similarity:.3f}\n")
+                            f.write(f"出所: Issue ID {metadata.get('issue_id', 'N/A')}\n")
+                            f.write(f"件名: {metadata.get('subject', 'N/A')}\n")
+                            f.write(f"ステータス: {metadata.get('status', 'N/A')}\n")
+                            f.write(f"チャンク番号: {metadata.get('chunk_index', 'N/A')}\n")
+                            f.write("内容:\n")
+                            f.write(content + "\n")
+                            f.write("-" * 40 + "\n")
+                    else:
+                        f.write("【類似文書と判定された結果】\n")
+                        f.write("該当する類似文書は見つかりませんでした。\n")
+                    
+            except Exception as log_e:
+                logger.debug(f"Failed to log search query/results: {log_e}")
+
             # 希望件数へ丸め
             return similar_issues[:n_results]
 
