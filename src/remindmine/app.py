@@ -40,7 +40,8 @@ async def lifespan(app: FastAPI):
     redmine_client = RedmineClient(
         config.redmine_url,
         config.redmine_api_key,
-        disable_proxy=config.disable_proxy
+        disable_proxy=config.disable_proxy,
+        ssl_verify=config.ssl_verify
     )
     
     # Initialize RAG service with AI provider support

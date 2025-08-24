@@ -30,7 +30,8 @@ def run_update():
         redmine_client = RedmineClient(
             config.redmine_url,
             config.redmine_api_key,
-            disable_proxy=config.disable_proxy
+            disable_proxy=config.disable_proxy,
+            ssl_verify=config.ssl_verify
         )
         rag_service = RAGService(
             config.chromadb_path,

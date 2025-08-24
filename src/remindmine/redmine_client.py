@@ -11,13 +11,14 @@ logger = logging.getLogger(__name__)
 class RedmineClient:
     """Redmine API client."""
 
-    def __init__(self, base_url: str, api_key: str, disable_proxy: bool = False):
+    def __init__(self, base_url: str, api_key: str, disable_proxy: bool = False, ssl_verify: bool = True):
         """Initialize Redmine client.
 
         Args:
             base_url: Redmine base URL
             api_key: Redmine API key
             disable_proxy: If True, ignore system / environment proxies
+            ssl_verify: If False, ignore SSL certificate verification
         """
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
@@ -26,6 +27,15 @@ class RedmineClient:
             'X-Redmine-API-Key': api_key,
             'Content-Type': 'application/json'
         })
+        
+        # SSL verification setting
+        self.session.verify = ssl_verify
+        if not ssl_verify:
+            # Suppress SSL warnings when verification is disabled
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            logger.warning("RedmineClient: SSL certificate verification disabled")
+        
         # Store last retrieved total_count for pagination purposes
         self.last_total_count = 0
 

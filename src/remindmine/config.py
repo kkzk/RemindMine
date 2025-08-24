@@ -50,6 +50,9 @@ class Config(BaseModel):
 
     # Network / Proxy settings
     disable_proxy: bool = os.getenv("DISABLE_PROXY", "false").lower() == "true"
+    
+    # SSL settings
+    ssl_verify: bool = os.getenv("SSL_VERIFY", "true").lower() == "true"
 
 
 # Global config instance
