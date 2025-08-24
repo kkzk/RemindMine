@@ -91,6 +91,15 @@ class RAGService:
         self.ollama_base_url = ollama_base_url or config.ollama_base_url
         self.ollama_model = ollama_model or config.ollama_model
         
+        # 可能なら事前に埋め込み次元をプローブ（Ollama など動的次元検出用）
+        try:
+            probe_vec = self.ai_provider.embed_query("__dimension_probe__")
+            if probe_vec and hasattr(self.ai_provider, 'default_dimension'):
+                # embed_query 内で provider 側の default_dimension が更新される設計
+                logger.info(f"Probed embedding dimension: {len(probe_vec)}")
+        except Exception:
+            logger.debug("Embedding dimension probe failed; fallback to provider default.")
+
         # ChromaDB クライアント初期化 (永続モード)
         self.chroma_client = chromadb.PersistentClient(
             path=chromadb_path,
@@ -114,8 +123,19 @@ class RAGService:
             stored_dim = col_meta.get('embedding_dimension')
             if stored_dim and expected_dim and stored_dim != expected_dim:
                 logger.warning(
-                    f"Embedding dimension mismatch detected (stored={stored_dim}, current={expected_dim}). "
-                    "Call index_issues() to rebuild the collection."
+                    f"Embedding dimension mismatch detected (stored={stored_dim}, current={expected_dim}). Rebuilding empty collection now."
+                )
+                try:
+                    self.chroma_client.delete_collection("redmine_issues")
+                except Exception:
+                    pass
+                self.collection = self.chroma_client.get_or_create_collection(
+                    name="redmine_issues",
+                    metadata={
+                        "hnsw:space": "cosine",
+                        "embedding_model": embedding_model,
+                        "embedding_dimension": expected_dim
+                    }
                 )
         except Exception:  # メタデータ未対応バージョン等は無視
             pass
@@ -147,7 +167,7 @@ class RAGService:
             with open(self.index_state_path, 'r', encoding='utf-8') as f:
                 return json.load(f)
         except Exception:
-            return {"issues": {}, "embedding_model": getattr(self.ai_provider, 'embedding_model', 'unknown'), "version": 1}
+            return {"issues": {}, "embedding_model": getattr(self.ai_provider, 'embedding_model', 'unknown'), "embedding_dimension": getattr(self.ai_provider, 'default_dimension', None), "version": 1}
 
     def _save_index_state(self, state: Dict[str, Any]) -> None:
         try:
@@ -181,8 +201,12 @@ class RAGService:
         expected_dim = getattr(self.ai_provider, 'default_dimension', None)
         state = self._load_index_state()
         prev_model = state.get('embedding_model')
+        prev_dim = state.get('embedding_dimension')
         if prev_model != current_embedding_model:
             logger.info(f"Embedding model changed: {prev_model} -> {current_embedding_model}; forcing full rebuild")
+            full_rebuild = True
+        elif prev_dim and expected_dim and prev_dim != expected_dim:
+            logger.info(f"Embedding dimension changed: {prev_dim} -> {expected_dim}; forcing full rebuild")
             full_rebuild = True
 
         if full_rebuild:
@@ -299,6 +323,7 @@ class RAGService:
         # 状態保存
         state['issues'] = issue_state
         state['embedding_model'] = current_embedding_model
+        state['embedding_dimension'] = expected_dim
         self._save_index_state(state)
 
         logger.info(
