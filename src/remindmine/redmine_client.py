@@ -26,6 +26,8 @@ class RedmineClient:
             'X-Redmine-API-Key': api_key,
             'Content-Type': 'application/json'
         })
+        # Store last retrieved total_count for pagination purposes
+        self.last_total_count = 0
 
         if disable_proxy:
             # Clear proxy-related environment variables for this session only
@@ -67,7 +69,10 @@ class RedmineClient:
             response = self.session.get(url, params=params)
             response.raise_for_status()
             data = response.json()
-            return data.get('issues', [])
+            issues = data.get('issues', [])
+            # Store total_count from Redmine API for pagination
+            self.last_total_count = data.get('total_count', len(issues))
+            return issues
         except requests.RequestException as e:
             logger.error(f"Failed to fetch issues: {e}")
             return []

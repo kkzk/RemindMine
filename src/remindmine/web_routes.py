@@ -126,7 +126,7 @@ async def get_issues(
             enhanced_issues.append(enhanced_issue)
         
         # Get total count (approximation)
-        total_issues = len(issues)  # This is approximate
+        total_issues = getattr(redmine_client, 'last_total_count', len(issues))
         total_pages = max(1, (total_issues + limit - 1) // limit)
         
         return {
