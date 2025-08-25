@@ -3,6 +3,7 @@ from typing import Optional
 from .indexer import RAGIndexer
 from .searcher import RAGSearcher
 from .shared import RAGBase
+from ..config import config
 
 __all__ = ['RAGIndexer', 'RAGSearcher', 'RAGBase', 'RAGService']
 
@@ -27,6 +28,10 @@ class RAGService:
         self.ai_provider = self.searcher.ai_provider
         self.chromadb_path = chromadb_path
         self.collection = self.searcher.collection
+        
+        # 後方互換性のため、設定値を属性として公開
+        self.ollama_base_url = config.ollama_base_url
+        self.ollama_model = config.ollama_model
     
     def index_issues(self, issues, full_rebuild=False):
         """課題一覧をインデックス（indexerに転送）。"""
