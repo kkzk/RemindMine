@@ -83,6 +83,7 @@
             border-radius: 8px;
             padding: 20px;
             margin-top: 20px;
+            overflow-x: auto;
         }
 
         .documents-header {
@@ -144,6 +145,7 @@
             width: 100%;
             border-collapse: collapse;
             margin-top: 20px;
+            table-layout: fixed;
         }
 
         .documents-table th,
@@ -151,6 +153,7 @@
             padding: 12px;
             text-align: left;
             border-bottom: 1px solid #dee2e6;
+            vertical-align: top;
         }
 
         .documents-table th {
@@ -169,6 +172,12 @@
             white-space: nowrap;
         }
 
+        .metadata-cell {
+            max-width: 200px;
+            word-wrap: break-word;
+            white-space: normal;
+        }
+
         .metadata-badge {
             background: #6c757d;
             color: white;
@@ -176,6 +185,8 @@
             border-radius: 3px;
             font-size: 0.8em;
             margin-right: 5px;
+            margin-bottom: 3px;
+            display: inline-block;
         }
 
         .pagination {
@@ -502,7 +513,7 @@
                             <tr>
                                 <td>${doc.id}</td>
                                 <td class="document-text">${(doc.document || '').substring(0, 100)}...</td>
-                                <td>
+                                <td class="metadata-cell">
                                     ${Object.keys(doc.metadata || {}).map(key => 
                                         `<span class="metadata-badge">${key}</span>`
                                     ).join('')}
@@ -613,7 +624,7 @@
                                 <td>${doc.id}</td>
                                 <td class="document-text">${(doc.document || '').substring(0, 100)}...</td>
                                 <td>${doc.similarity ? (doc.similarity * 100).toFixed(2) + '%' : '不明'}</td>
-                                <td>
+                                <td class="metadata-cell">
                                     ${Object.keys(doc.metadata || {}).map(key => 
                                         `<span class="metadata-badge">${key}</span>`
                                     ).join('')}
