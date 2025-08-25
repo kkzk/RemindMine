@@ -6,6 +6,8 @@
     <title>RemindMine AI Agent - ダッシュボード</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <!-- GitHub Markdown CSS for beautiful markdown rendering -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css">
     <!-- Markdown rendering libraries -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js" defer></script>
@@ -21,6 +23,9 @@
                 <button class="nav-btn" data-tab="settings">
                     <i class="fas fa-cog"></i> 設定
                 </button>
+                <a href="/chromadb" class="nav-btn nav-link">
+                    <i class="fas fa-database"></i> ChromaDB
+                </a>
             </nav>
         </div>
     </header>
@@ -192,6 +197,9 @@
                                 </button>
                                 <button id="clear-cache" class="btn btn-warning">
                                     <i class="fas fa-trash"></i> キャッシュクリア
+                                </button>
+                                <button id="reindex-rag" class="btn btn-danger">
+                                    <i class="fas fa-database"></i> RAG再インデックス
                                 </button>
                             </div>
                         </div>

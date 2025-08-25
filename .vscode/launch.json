@@ -2,16 +2,42 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug RemindMine",
+            "name": "Debug RemindMine (uv run)",
             "type": "debugpy",
             "request": "launch",
+            "program": "uv",
+            "args": [
+                "run",
+                "python",
+                "-m",
+                "uvicorn",
+                "remindmine.app:app",
+                "--host", "0.0.0.0",
+                "--port", "8000",
+                "--reload",
+                "--reload-include", "*.py",
+                "--reload-include", "*.html"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}/src",
+                "PATH": "C:\\Users\\micro\\.local\\bin;${env:PATH}"
+            }
+        },
+        {
+            "name": "Debug RemindMine (direct)",
+            "type": "debugpy",
+            "request": "launch",
+            "python": "${workspaceFolder}/.venv/Scripts/python.exe",
             "module": "uvicorn",
             "args": [
                 "remindmine.app:app",
                 "--host", "0.0.0.0",
+                "--port", "8000",
                 "--reload",
-                "--reload-dir", "${workspaceFolder}/src",
-                "--reload-include", "*.py",
+                "--reload-include=*.py",
+                "--reload-include=*.html"
             ],
             "console": "integratedTerminal",
             "cwd": "${workspaceFolder}",

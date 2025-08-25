@@ -94,6 +94,12 @@ class RemindMineApp {
             this.clearCache();
         });
 
+        // RAG Reindex
+        const reindexBtn = document.getElementById('reindex-rag');
+        if (reindexBtn) {
+            reindexBtn.addEventListener('click', () => this.reindexRAG());
+        }
+
         // AI Provider events
         document.getElementById('ai-provider-select').addEventListener('change', (e) => {
             this.handleProviderChange(e.target.value);
@@ -296,6 +302,9 @@ class RemindMineApp {
                         <div class="summary-header">
                             <i class="fas fa-file-text"></i>
                             <strong>現状サマリ</strong>
+                            <button class="btn btn-secondary btn-sm summary-regenerate-btn" onclick="app.regenerateSummaries('${issue.id}')" title="サマリ再作成">
+                                <i class="fas fa-sync"></i>
+                            </button>
                         </div>
                         <div class="summary-content scrollable">
                             ${this.escapeHtml(issue.content_summary)}
@@ -326,9 +335,6 @@ class RemindMineApp {
                             <i class="fas fa-eye"></i> アドバイス詳細
                         </button>
                     ` : ''}
-                    <button class="btn btn-secondary" onclick="app.regenerateSummaries('${issue.id}')">
-                        <i class="fas fa-sync"></i> サマリ再作成
-                    </button>
                     <button class="btn btn-primary" onclick="app.generateAdvice('${issue.id}')">
                         <i class="fas fa-redo"></i> アドバイス再作成
                     </button>
@@ -389,6 +395,9 @@ class RemindMineApp {
                         <div class="summary-header">
                             <i class="fas fa-file-text"></i>
                             <strong>現状サマリ</strong>
+                            <button class="btn btn-secondary btn-sm summary-regenerate-btn" onclick="app.regenerateSummaries('${issue.id}')" title="サマリ再作成">
+                                <i class="fas fa-sync"></i>
+                            </button>
                         </div>
                         <div class="summary-content scrollable">
                             ${this.escapeHtml(issue.content_summary)}
@@ -445,9 +454,6 @@ class RemindMineApp {
                             <i class="fas fa-eye"></i> アドバイス詳細
                         </button>
                     ` : ''}
-                    <button class="btn btn-secondary" onclick="app.regenerateSummaries('${issue.id}')">
-                        <i class="fas fa-sync"></i> サマリ再作成
-                    </button>
                     <button class="btn btn-primary" onclick="app.generateAdvice('${issue.id}')">
                         <i class="fas fa-redo"></i> アドバイス再作成
                     </button>
@@ -1218,6 +1224,33 @@ class RemindMineApp {
         } finally {
             saveButton.disabled = false;
             saveButton.innerHTML = '<i class="fas fa-save"></i> プロバイダ設定保存';
+        }
+    }
+
+    async reindexRAG() {
+        if (!confirm('RAGのベクトルインデックスを全再構築します。時間がかかる場合があります。続行しますか？')) {
+            return;
+        }
+        const btn = document.getElementById('reindex-rag');
+        if (btn) {
+            btn.disabled = true;
+            const original = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 再インデックス中...';
+            try {
+                const resp = await fetch('/api/web/rag/reindex', { method: 'POST' });
+                const data = await resp.json();
+                if (resp.ok && data.success) {
+                    this.showNotification(`再インデックス完了: Issues ${data.issues_indexed}, チャンク ${data.chunks_indexed}`, 'success');
+                } else {
+                    throw new Error(data.detail || '再インデックスに失敗しました');
+                }
+            } catch (e) {
+                console.error('Reindex failed', e);
+                this.showNotification(`再インデックス失敗: ${e.message}`, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = original;
+            }
         }
     }
 }

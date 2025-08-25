@@ -48,8 +48,9 @@ class OllamaProvider(AIProvider):
         self.base_url = base_url
         self.model = model
         self.embedding_model = embedding_model
-        self.default_dimension = 384  # Default embedding dimension
-        logger.info(f"Initialized Ollama provider: {base_url}, model: {model}")
+        # 一旦仮の初期値。実際の次元は最初の API 呼び出しで上書きする。
+        self.default_dimension = 384
+        logger.info(f"Initialized Ollama provider: {self.base_url}, model: {self.model}")
     
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         """複数テキストを埋め込みベクトルへ変換。"""
@@ -96,7 +97,17 @@ class OllamaProvider(AIProvider):
             response = requests.post(url, json=data, timeout=30)
             response.raise_for_status()
             result = response.json()
-            return result.get("embedding")
+            emb = result.get("embedding")
+            if emb and isinstance(emb, list):
+                dim = len(emb)
+                # 実際の次元が仮値と異なる場合は更新
+                if dim != self.default_dimension:
+                    logger.info(
+                        f"Ollama embedding dimension detected/updated: {self.default_dimension} -> {dim} (model={self.embedding_model})"
+                    )
+                    self.default_dimension = dim
+                return emb
+            return None
         except Exception as e:
             logger.error(f"Failed to get embedding from Ollama: {e}")
             return None

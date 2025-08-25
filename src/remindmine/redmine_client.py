@@ -10,13 +10,15 @@ logger = logging.getLogger(__name__)
 
 class RedmineClient:
     """Redmine API client."""
-    
-    def __init__(self, base_url: str, api_key: str):
+
+    def __init__(self, base_url: str, api_key: str, disable_proxy: bool = False, ssl_verify: bool = True):
         """Initialize Redmine client.
-        
+
         Args:
             base_url: Redmine base URL
             api_key: Redmine API key
+            disable_proxy: If True, ignore system / environment proxies
+            ssl_verify: If False, ignore SSL certificate verification
         """
         self.base_url = base_url.rstrip('/')
         self.api_key = api_key
@@ -25,6 +27,25 @@ class RedmineClient:
             'X-Redmine-API-Key': api_key,
             'Content-Type': 'application/json'
         })
+        
+        # SSL verification setting
+        self.session.verify = ssl_verify
+        if not ssl_verify:
+            # Suppress SSL warnings when verification is disabled
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+            logger.warning("RedmineClient: SSL certificate verification disabled")
+        
+        # Store last retrieved total_count for pagination purposes
+        self.last_total_count = 0
+
+        if disable_proxy:
+            # Clear proxy-related environment variables for this session only
+            # requests allows per-session proxies dict; set empty dict to bypass.
+            self.session.proxies = {}
+            # Additionally disable trust of environment (prevents picking up *_proxy)
+            self.session.trust_env = False
+            logger.info("RedmineClient: Proxy disabled for session")
     
     def get_issues(self, 
                    project_id: Optional[int] = None,
@@ -58,7 +79,10 @@ class RedmineClient:
             response = self.session.get(url, params=params)
             response.raise_for_status()
             data = response.json()
-            return data.get('issues', [])
+            issues = data.get('issues', [])
+            # Store total_count from Redmine API for pagination
+            self.last_total_count = data.get('total_count', len(issues))
+            return issues
         except requests.RequestException as e:
             logger.error(f"Failed to fetch issues: {e}")
             return []
@@ -113,36 +137,58 @@ class RedmineClient:
     def get_all_issues_with_journals(self) -> List[Dict[str, Any]]:
         """Get all issues with their journals for RAG indexing.
         
+        Note: Redmine API does not support including journals in bulk issue retrieval.
+        This method fetches issue IDs first, then retrieves each issue individually.
+        
         Returns:
             List of issues with journals
         """
-        all_issues = []
+        # First, get all issue IDs without journals (faster)
+        all_issue_ids = []
         offset = 0
         limit = 100
         
+        logger.info("Fetching all issue IDs...")
         while True:
             issues = self.get_issues(status_id='*', limit=limit, offset=offset)
             if not issues:
                 break
                 
-            all_issues.extend(issues)
+            # Extract just the IDs
+            issue_ids = [issue['id'] for issue in issues]
+            all_issue_ids.extend(issue_ids)
             
             if len(issues) < limit:
                 break
                 
             offset += limit
+        
+        logger.info(f"Found {len(all_issue_ids)} issues. Fetching detailed data with journals...")
+        
+        # Now fetch each issue individually to get journals
+        all_issues_with_journals = []
+        for i, issue_id in enumerate(all_issue_ids, 1):
+            if i % 10 == 0:  # Progress logging
+                logger.info(f"Fetching issue details: {i}/{len(all_issue_ids)}")
             
-        logger.info(f"Fetched {len(all_issues)} issues total")
-        return all_issues
+            issue = self.get_issue(issue_id)
+            if issue:
+                all_issues_with_journals.append(issue)
+            else:
+                logger.warning(f"Failed to fetch details for issue #{issue_id}")
+        
+        logger.info(f"Successfully fetched {len(all_issues_with_journals)} issues with journals")
+        return all_issues_with_journals
 
-    def get_issues_since(self, since_datetime: datetime) -> List[Dict[str, Any]]:
+    def get_issues_since(self, since_datetime: datetime, include_journals: bool = False) -> List[Dict[str, Any]]:
         """Get issues created since the specified datetime.
         
         Args:
             since_datetime: Datetime to filter issues from
+            include_journals: If True, fetch journals for each issue individually
             
         Returns:
-            List of new issues
+            List of new issues (with journals if include_journals=True)
         """
         # Format datetime for Redmine API (ISO format)
         since_str = since_datetime.strftime('%Y-%m-%dT%H:%M:%SZ')
@@ -151,8 +197,7 @@ class RedmineClient:
         params = {
             'created_on': f">={since_str}",
             'sort': 'created_on:desc',
-            'limit': 100,
-            'include': 'journals'
+            'limit': 100
         }
         
         try:
@@ -161,6 +206,20 @@ class RedmineClient:
             data = response.json()
             issues = data.get('issues', [])
             logger.info(f"Found {len(issues)} issues created since {since_str}")
+            
+            # If journals are needed, fetch each issue individually
+            if include_journals and issues:
+                logger.info(f"Fetching journals for {len(issues)} new issues...")
+                issues_with_journals = []
+                for issue in issues:
+                    detailed_issue = self.get_issue(issue['id'])
+                    if detailed_issue:
+                        issues_with_journals.append(detailed_issue)
+                    else:
+                        # Fallback to original issue data if detailed fetch fails
+                        issues_with_journals.append(issue)
+                return issues_with_journals
+            
             return issues
         except requests.RequestException as e:
             logger.error(f"Failed to fetch issues since {since_str}: {e}")
